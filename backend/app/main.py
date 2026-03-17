@@ -44,7 +44,7 @@ async def health_check():
     return {"status": "ok"}
 
 
-# ── Aquí irán los routers en la Fase 1 ───────────────────
-# from app.api.endpoints import signs, websocket
-# app.include_router(signs.router, prefix="/api/v1")
-# app.include_router(websocket.router)
+# ── Routers ───────────────────────────────────────────────
+from app.api.endpoints import signs, websocket
+app.include_router(signs.router, prefix="/api/v1")
+app.include_router(websocket.router)
