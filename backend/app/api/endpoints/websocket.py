@@ -11,6 +11,17 @@ import traceback
 
 router = APIRouter()
 
+# ── Singleton: se inicializa una sola vez al arrancar el servidor ──
+_servicio: MediaPipeService | None = None
+
+def get_servicio() -> MediaPipeService:
+    global _servicio
+    if _servicio is None:
+        print("🔄 Inicializando MediaPipe (primera vez)…")
+        _servicio = MediaPipeService()
+        print("✅ MediaPipe listo.")
+    return _servicio
+
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -19,20 +30,26 @@ async def websocket_endpoint(websocket: WebSocket):
 
     Flujo:
     1. Frontend abre conexión
-    2. Frontend envía frames como bytes cada 100ms
+    2. Frontend envía frames como bytes cada 200ms
     3. Backend procesa con MediaPipe y devuelve keypoints
     4. Conexión se mantiene abierta hasta que el usuario cierra
     """
     await websocket.accept()
     print("✅ Cliente conectado al WebSocket")
 
-    # Crear instancia del servicio MediaPipe para esta sesión
-    servicio = MediaPipeService()
+    servicio = get_servicio()
 
     try:
         while True:
             # Recibir frame del frontend
-            data = await websocket.receive()
+            try:
+                data = await websocket.receive()
+            except RuntimeError:
+                # WebSocket ya se desconectó — salir sin error
+                break
+
+            if data.get("type") == "websocket.disconnect":
+                break
 
             # El frontend puede enviar bytes (frame) o texto (comandos)
             if "bytes" in data and data["bytes"]:
@@ -54,20 +71,23 @@ async def websocket_endpoint(websocket: WebSocket):
                         "num_keypoints": 0,
                     }
 
-                await websocket.send_text(json.dumps(respuesta))
+                try:
+                    await websocket.send_text(json.dumps(respuesta))
+                except Exception:
+                    break  # Cliente se desconectó mientras procesábamos
 
             elif "text" in data and data["text"]:
-                mensaje = json.loads(data["text"])
-
-                # Comando ping — para verificar que la conexión está viva
-                if mensaje.get("type") == "ping":
-                    await websocket.send_text(json.dumps({"type": "pong"}))
+                try:
+                    mensaje = json.loads(data["text"])
+                    if mensaje.get("type") == "ping":
+                        await websocket.send_text(json.dumps({"type": "pong"}))
+                except Exception:
+                    pass
 
     except WebSocketDisconnect:
-        print("👋 Cliente desconectado del WebSocket")
+        pass  # Desconexión normal, no es un error
     except Exception as e:
-        print(f"❌ Error en WebSocket: {e}")
+        print(f"❌ Error inesperado en WebSocket: {e}")
         traceback.print_exc()
     finally:
-        servicio.cerrar()
-        print("🔒 Recursos MediaPipe liberados")
+        print("👋 Cliente desconectado del WebSocket")
