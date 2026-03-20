@@ -142,4 +142,4 @@ Este proyecto fue desarrollado con fines estrictamente académicos en el marco d
 
 Queda prohibida su reproducción, distribución o uso comercial sin autorización expresa de los autores. El código fuente puede ser consultado como referencia académica citando a los autores correspondientes.
 
-© 2026 Juan Camilo Neuta Sunce, Cristian Felipe Tafur Díaz, Santiago Tovar — Todos los derechos reservados.
+© 2026 Juan Camilo Neuta Sunce, Cristian Felipe Tafur Díaz, Santiago Tovar — Todos los derechos reservados
