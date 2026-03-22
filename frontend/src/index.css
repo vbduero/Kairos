@@ -4,6 +4,12 @@
 /* ── Reset & Variables ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Google Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ── Reset & Variables ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
 :root {
   --bg-primary: #0a0e1a;
   --bg-secondary: #111827;
@@ -348,3 +354,4 @@ body::before {
   text-align: center;
   padding: 16px;
 }
+

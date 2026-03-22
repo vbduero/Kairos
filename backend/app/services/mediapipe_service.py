@@ -48,8 +48,10 @@ class MediaPipeService:
         import os
 
         # Descargar modelo si no existe
-        ruta_modelo = "models/hand_landmarker.task"
-        os.makedirs("models", exist_ok=True)
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        ruta_modelo = os.path.join(base_dir, "models", "hand_landmarker.task")
+        os.makedirs(os.path.dirname(ruta_modelo), exist_ok=True)
         if not os.path.exists(ruta_modelo):
             print("📥 Descargando modelo de MediaPipe...")
             url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"

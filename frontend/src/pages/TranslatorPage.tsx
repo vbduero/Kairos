@@ -25,3 +25,4 @@ const TranslatorPage: React.FC = () => (
 );
 
 export default TranslatorPage;
+
