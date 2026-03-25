@@ -1,18 +1,70 @@
+// ============================================================
+//  CameraCapture — Componente principal de captura
+//  Integra MediaPipe + Clasificador LSC en tiempo real
+// ============================================================
+
 import React, { useEffect, useRef, useState } from 'react';
 import { useCamera } from '../../hooks/useCamera';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { SignDisplay } from '../ui/SignDisplay';
+import { ConfidenceBar } from '../ui/ConfidenceBar';
+import { SignHistory } from '../ui/SignHistory';
+import type { SignEntry } from '../ui/SignHistory';
 
 export const CameraCapture: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { stream, error, startCamera, stopCamera, isActive } = useCamera();
-  const { isConnected, keypoints, startSendingFrames, stopSendingFrames } = useWebSocket();
+  const { isConnected, response, startSendingFrames, stopSendingFrames } = useWebSocket();
   const [isCapturing, setIsCapturing] = useState(false);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.85);
+  const [history, setHistory] = useState<SignEntry[]>([]);
+  const lastSignRef = useRef<string | null>(null);
+  const noHandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  // ── Manejar historial de señas ──
+  useEffect(() => {
+    if (!response) return;
+
+    if (!response.hand_detected) {
+      // Limpiar historial si no hay mano por más de 2 segundos
+      if (!noHandTimerRef.current) {
+        noHandTimerRef.current = setTimeout(() => {
+          lastSignRef.current = null;
+        }, 2000);
+      }
+      return;
+    }
+
+    // Cancelar timer de limpieza si hay mano
+    if (noHandTimerRef.current) {
+      clearTimeout(noHandTimerRef.current);
+      noHandTimerRef.current = null;
+    }
+
+    // Agregar al historial si la seña cambió y supera el umbral
+    const sign = response.predicted_sign;
+    const confidence = response.confidence;
+
+    if (sign && confidence >= confidenceThreshold && sign !== lastSignRef.current) {
+      lastSignRef.current = sign;
+      setHistory(prev => {
+        const nueva: SignEntry = { sign, confidence, timestamp: new Date() };
+        return [nueva, ...prev].slice(0, 5); // máximo 5 entradas
+      });
+    }
+  }, [response, confidenceThreshold]);
+
+  useEffect(() => () => {
+    stopSendingFrames();
+    stopCamera();
+    if (noHandTimerRef.current) clearTimeout(noHandTimerRef.current);
+  }, []);
 
   const handleToggle = async () => {
     if (!isCapturing) {
@@ -25,9 +77,7 @@ export const CameraCapture: React.FC = () => {
     }
   };
 
-  useEffect(() => () => { stopSendingFrames(); stopCamera(); }, []);
-
-  const kpCount = keypoints?.num_keypoints ?? 0;
+  const kpCount = response?.num_keypoints ?? 0;
 
   return (
     <>
@@ -64,8 +114,10 @@ export const CameraCapture: React.FC = () => {
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Bottom panel */}
       <div className="bottom-panel">
+
+        {/* Controls */}
         <div className="controls-row">
           <button onClick={handleToggle} className={`btn-capture ${isCapturing ? 'stop' : 'start'}`}>
             {isCapturing ? (
@@ -102,30 +154,44 @@ export const CameraCapture: React.FC = () => {
           )}
         </div>
 
-        {/* Keypoints */}
-        <div className="keypoints-section">
-          <div className="keypoints-header">
-            <span className="keypoints-title">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18"/>
-              </svg>
-              Keypoints raw
-            </span>
-            {kpCount > 0 && <span className="kp-count-badge">{kpCount} valores</span>}
-          </div>
+        {/* Seña detectada */}
+        <SignDisplay
+          sign={response?.predicted_sign ?? null}
+          confidence={response?.confidence ?? 0}
+          handDetected={response?.hand_detected ?? false}
+          confidenceThreshold={confidenceThreshold}
+        />
 
-          <div className="keypoints-box">
-            {keypoints ? (
-              <pre>{JSON.stringify(keypoints.keypoints, null, 2)}</pre>
-            ) : (
-              <div className="keypoints-placeholder">
-                Inicia la captura y muestra tu mano a la cámara…
-              </div>
-            )}
+        {/* Barra de confianza */}
+        <ConfidenceBar
+          confidence={response?.confidence ?? 0}
+          handDetected={response?.hand_detected ?? false}
+        />
+
+        {/* Slider de umbral */}
+        <div className="threshold-section">
+          <div className="threshold-header">
+            <span className="threshold-label">Umbral mínimo de confianza</span>
+            <span className="threshold-value">{Math.round(confidenceThreshold * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min={50}
+            max={95}
+            value={Math.round(confidenceThreshold * 100)}
+            onChange={e => setConfidenceThreshold(Number(e.target.value) / 100)}
+            className="threshold-slider"
+          />
+          <div className="threshold-hints">
+            <span>50% (más sensible)</span>
+            <span>95% (más estricto)</span>
           </div>
         </div>
+
+        {/* Historial */}
+        <SignHistory entries={history} />
+
       </div>
     </>
   );
 };
-
