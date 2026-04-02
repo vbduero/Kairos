@@ -1,21 +1,26 @@
+# ============================================================
+#  Recolección de Datos LSC — Secuencias de 2 manos
+#  Captura secuencias de 15 frames (3 seg) con 2 manos
+#  Ejecutar desde la raíz del proyecto:
+#    python ai/scripts/recolectar_datos.py
+# ============================================================
+
 import cv2
-import csv
 import os
 import sys
 import time
 import numpy as np
 
-# Añadir el path del backend para importar el servicio de MediaPipe
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/../../backend')
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../backend'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 try:
     from app.services.mediapipe_service import MediaPipeService
-except ImportError:
-    print("❌ Error: No se pudo importar MediaPipeService.")
-    print("Asegúrate de ejecutar este script desde la raíz del proyecto o con el PYTHONPATH correcto.")
+    from utils.keypoint_utils import KP_TOTAL, SEQUENCE_LEN
+except ImportError as e:
+    print(f"❌ Error de importación: {e}")
     sys.exit(1)
 
-# --- CONFIGURACIÓN ---
 VOCABULARIO = [
     "hola", "adios", "gracias", "por favor", "si",
     "no", "ayuda", "agua", "casa", "familia",
@@ -23,35 +28,28 @@ VOCABULARIO = [
     "doctor", "policia", "emergencia", "nombre", "como estas"
 ]
 
-MUESTRAS_POR_SENA = 50
-DATASET_PATH = os.path.join(os.path.dirname(__file__), '../datasets/lsc_dataset.csv')
-COLUMNAS = ['label'] + [f'kp_{i}' for i in range(63)] # label + 21*3 keypoints
+MUESTRAS_POR_SENA = 30
+FRAME_INTERVAL_MS = 200
+SEQUENCES_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
 
-def inicializar_csv():
-    """Crea el archivo CSV con encabezados si no existe."""
-    os.makedirs(os.path.dirname(DATASET_PATH), exist_ok=True)
-    if not os.path.exists(DATASET_PATH):
-        with open(DATASET_PATH, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(COLUMNAS)
-        print(f"✅ Dataset creado en {DATASET_PATH}")
-    else:
-        print(f"ℹ️ Usando dataset existente en {DATASET_PATH}")
 
-def count_existing_samples(sena):
-    """Cuenta cuántas muestras ya existen para una seña en el CSV."""
-    if not os.path.exists(DATASET_PATH):
+def contar_secuencias(sena):
+    dir_sena = os.path.join(SEQUENCES_DIR, sena)
+    if not os.path.exists(dir_sena):
         return 0
-    try:
-        with open(DATASET_PATH, 'r') as f:
-            reader = csv.reader(f)
-            return sum(1 for row in reader if row and row[0] == sena)
-    except Exception:
-        return 0
+    return len([f for f in os.listdir(dir_sena) if f.endswith('.npy')])
+
+
+def guardar_secuencia(sena, secuencia):
+    dir_sena = os.path.join(SEQUENCES_DIR, sena)
+    os.makedirs(dir_sena, exist_ok=True)
+    timestamp = int(time.time() * 1000)
+    path = os.path.join(dir_sena, f"{timestamp}.npy")
+    np.save(path, np.array(secuencia, dtype=np.float32))
+    return path
+
 
 def recolectar():
-    inicializar_csv()
-    
     service = MediaPipeService()
     cap = cv2.VideoCapture(0)
     
@@ -59,90 +57,123 @@ def recolectar():
         print("❌ Error: No se pudo acceder a la cámara.")
         return
 
-    print("\n" + "="*50)
-    print("  MANOS QUE HABLAN — RECOLECCIÓN DE DATOS LSC")
-    print("="*50)
+    print("\n" + "=" * 55)
+    print("  MANOS QUE HABLAN — RECOLECCIÓN DE SECUENCIAS LSC")
+    print("  2 manos + movimiento (15 frames × 126 keypoints)")
+    print("=" * 55)
     print(f"Vocabulario: {len(VOCABULARIO)} señas")
-    print(f"Objetivo: {MUESTRAS_POR_SENA} muestras por seña")
+    print(f"Objetivo: {MUESTRAS_POR_SENA} secuencias por seña")
+    print(f"Duración: {SEQUENCE_LEN * FRAME_INTERVAL_MS / 1000:.1f} segundos por secuencia")
     print("Instrucciones:")
-    print("  - Presiona ENTER para empezar a grabar una seña.")
-    print("  - Presiona 'n' para saltar a la siguiente seña.")
-    print("  - Presiona 'q' para salir.")
-    print("="*50 + "\n")
+    print("  - Presiona ENTER para iniciar la grabación de una secuencia")
+    print("  - Haz la seña durante la cuenta regresiva y grabación")
+    print("  - Presiona 'n' para saltar a la siguiente seña")
+    print("  - Presiona 'q' para salir")
+    print("=" * 55 + "\n")
 
     for sena in VOCABULARIO:
-        muestras_tomadas = count_existing_samples(sena)
+        muestras = contar_secuencias(sena)
         
-        if muestras_tomadas >= MUESTRAS_POR_SENA:
-            print(f"⏩ Saltando '{sena}', ya tienes {muestras_tomadas} muestras.")
+        if muestras >= MUESTRAS_POR_SENA:
+            print(f"⏩ Saltando '{sena}', ya tienes {muestras} secuencias.")
             continue
         
-        print(f"📍 Preparado para seña: {sena.upper()} (ya tienes {muestras_tomadas})")
+        print(f"\n📍 Seña: {sena.upper()} (tienes {muestras}/{MUESTRAS_POR_SENA})")
         
-        while muestras_tomadas < MUESTRAS_POR_SENA:
+        while muestras < MUESTRAS_POR_SENA:
             ret, frame = cap.read()
-            if not ret: break
+            if not ret:
+                break
             
-            frame = cv2.flip(frame, 1) # Espejo
+            frame = cv2.flip(frame, 1)
             
-            # Mostrar info en pantalla
-            cv2.putText(frame, f"Sena actual: {sena.upper()}", (10, 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, f"Progreso: {muestras_tomadas}/{MUESTRAS_POR_SENA}", (10, 60), 
+            cv2.putText(frame, f"Sena: {sena.upper()}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.putText(frame, f"Secuencias: {muestras}/{MUESTRAS_POR_SENA}", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            cv2.putText(frame, "Presiona ENTER para grabar", (10, 450), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-            cv2.imshow("Recoleccion de Datos LSC", frame)
+            cv2.putText(frame, "ENTER = grabar | N = saltar | Q = salir", (10, 450),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
             
+            cv2.imshow("Recoleccion LSC - Secuencias", frame)
             key = cv2.waitKey(1) & 0xFF
             
             if key == ord('q'):
-                print("Exiting...")
+                print("Saliendo...")
                 cap.release()
                 cv2.destroyAllWindows()
                 service.cerrar()
                 return
             
             if key == ord('n'):
-                print(f"⏩ Saltando '{sena}' por petición del usuario.")
+                print(f"⏩ Saltando '{sena}'.")
                 break
-
-            if key == 13: # ENTER
-                print(f"Capturando ráfaga para '{sena}'...")
-                # Capturamos una ráfaga de frames para mayor variabilidad
-                for _ in range(10): 
+            
+            if key == 13:  # ENTER
+                for countdown in [3, 2, 1]:
                     ret, frame = cap.read()
-                    if not ret: break
+                    if ret:
+                        frame = cv2.flip(frame, 1)
+                        cv2.putText(frame, str(countdown), (280, 260),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 4, (0, 0, 255), 8)
+                        cv2.putText(frame, f"Prepara: {sena.upper()}", (120, 380),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                        cv2.imshow("Recoleccion LSC - Secuencias", frame)
+                    cv2.waitKey(800)
+
+                print(f"  🔴 Grabando secuencia para '{sena}'...")
+                secuencia = []
+                frames_con_mano = 0
+                
+                for f_idx in range(SEQUENCE_LEN):
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    
                     frame = cv2.flip(frame, 1)
                     
-                    # Convertir a bytes para MediaPipeService
+                    progress = int((f_idx + 1) / SEQUENCE_LEN * 100)
+                    cv2.rectangle(frame, (0, 0), (640, 480), (0, 0, 255), 5)
+                    cv2.putText(frame, f"GRABANDO {progress}%", (180, 40),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                    cv2.putText(frame, sena.upper(), (220, 80),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                    cv2.imshow("Recoleccion LSC - Secuencias", frame)
+                    
                     _, buffer = cv2.imencode('.jpg', frame)
                     keypoints = service.procesar_frame(buffer.tobytes())
                     
-                    if keypoints:
-                        # Guardar en CSV
-                        with open(DATASET_PATH, 'a', newline='') as f:
-                            writer = csv.writer(f)
-                            writer.writerow([sena] + keypoints)
-                        muestras_tomadas += 1
-                        print(f"  [+] Muestra {muestras_tomadas}/{MUESTRAS_POR_SENA} guardada")
+                    if keypoints and len(keypoints) == KP_TOTAL:
+                        secuencia.append(keypoints)
+                        frames_con_mano += 1
                     else:
-                        print("  [!] Mano no detectada, saltando frame...")
+                        secuencia.append([0.0] * KP_TOTAL)
                     
-                    # Mostrar que estamos grabando
-                    cv2.rectangle(frame, (0,0), (640,480), (0,0,255), 10)
-                    cv2.imshow("Recoleccion de Datos LSC", frame)
-                    cv2.waitKey(100) # Pequeña pausa entre frames
-
-                    if muestras_tomadas >= MUESTRAS_POR_SENA:
-                        break
-                print(f"✅ Ráfaga completada.")
+                    cv2.waitKey(FRAME_INTERVAL_MS)
+                
+                min_frames_con_mano = SEQUENCE_LEN // 2
+                
+                if len(secuencia) == SEQUENCE_LEN and frames_con_mano >= min_frames_con_mano:
+                    path = guardar_secuencia(sena, secuencia)
+                    muestras += 1
+                    print(f"  ✅ Secuencia {muestras}/{MUESTRAS_POR_SENA} guardada "
+                          f"({frames_con_mano}/{SEQUENCE_LEN} frames con mano)")
+                else:
+                    print(f"  ❌ Secuencia descartada: solo {frames_con_mano}/{SEQUENCE_LEN} "
+                          f"frames con mano (mínimo {min_frames_con_mano})")
 
     print("\n🎉 ¡RECOLECCIÓN COMPLETADA!")
+    print(f"   Secuencias guardadas en: {SEQUENCES_DIR}")
+    
+    print("\n📊 Resumen:")
+    for sena in VOCABULARIO:
+        n = contar_secuencias(sena)
+        status = "✅" if n >= MUESTRAS_POR_SENA else "⚠️"
+        print(f"   {status} {sena:<15} {n}/{MUESTRAS_POR_SENA}")
+    
     cap.release()
     cv2.destroyAllWindows()
     service.cerrar()
+
 
 if __name__ == "__main__":
     recolectar()

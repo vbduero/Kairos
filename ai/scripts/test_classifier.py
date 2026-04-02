@@ -1,8 +1,8 @@
 # ============================================================
-#  Test Clasificador LSC — Tarea 4 Fase 2A
-#  Verifica que el clasificador funciona correctamente
-#  Ejecutar desde: backend/
-#  Comando: python ../ai/scripts/test_classifier.py
+#  Test Clasificador LSC — Fase 2
+#  Soporta modelo LSTM (secuencias) y Dense (legacy)
+#  Ejecutar desde la raíz del proyecto:
+#    python ai/scripts/test_classifier.py
 # ============================================================
 
 import sys
@@ -10,14 +10,16 @@ import os
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../backend'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from app.services.sign_classifier_service import SignClassifierService
+from utils.keypoint_utils import normalize_two_hands, KP_TOTAL
 
 VOCABULARIO = [
-    "hola", "adios", "gracias", "por_favor", "si",
+    "hola", "adios", "gracias", "por favor", "si",
     "no", "ayuda", "agua", "casa", "familia",
     "trabajo", "escuela", "comer", "dormir", "bano",
-    "doctor", "policia", "emergencia", "nombre", "como_estas"
+    "doctor", "policia", "emergencia", "nombre", "como estas"
 ]
 
 passed = 0
@@ -34,50 +36,51 @@ def test(nombre, condicion, detalle=""):
 
 print("\n🧪 Iniciando pruebas del clasificador LSC...\n")
 
-# Inicializar clasificador
 classifier = SignClassifierService()
 
-# ── Prueba 1: El modelo cargó correctamente ──
-test(
-    "Prueba 1: Modelo y labels cargados",
-    classifier.interpreter is not None and len(classifier.labels) == 20,
-    f"interpreter={classifier.interpreter}, labels={len(classifier.labels)}"
-)
+# ── Prueba 1: Modelo cargó ──
+test("Prueba 1: Modelo y labels cargados",
+     classifier.interpreter is not None and len(classifier.labels) == 20)
 
-# ── Prueba 2: Predice con keypoints válidos ──
-keypoints_validos = list(np.random.uniform(0, 1, 63))
-sign, confidence = classifier.predict(keypoints_validos)
-test(
-    "Prueba 2: Predicción con 63 keypoints válidos",
-    sign is not None and confidence > 0,
-    f"sign={sign}, confidence={confidence}"
-)
+# ── Prueba 2: Tipo de modelo ──
+test(f"Prueba 2: Tipo de modelo ({classifier.model_type})",
+     classifier.model_type in ["lstm", "dense"])
 
-# ── Prueba 3: Rechaza keypoints inválidos ──
-keypoints_invalidos = [0.5] * 10
-sign_inv, conf_inv = classifier.predict(keypoints_invalidos)
-test(
-    "Prueba 3: Rechaza entrada con menos de 63 keypoints",
-    sign_inv is None and conf_inv == 0.0,
-    f"sign={sign_inv}, confidence={conf_inv}"
-)
+# ── Prueba 3: Buffer funciona ──
+buffer = classifier.create_buffer()
+kp_sample = list(np.random.uniform(0, 1, KP_TOTAL))
+for i in range(classifier.sequence_length):
+    is_full = classifier.add_frame_to_buffer(buffer, kp_sample)
+test("Prueba 3: Buffer se llena correctamente",
+     is_full and len(buffer) == classifier.sequence_length)
 
-# ── Prueba 4: La confianza está entre 0 y 1 ──
-test(
-    "Prueba 4: Confianza es un valor entre 0 y 1",
-    0.0 <= confidence <= 1.0,
-    f"confidence={confidence}"
-)
+# ── Prueba 4: Predicción desde buffer ──
+sign, confidence = classifier.predict_from_buffer(buffer)
+test("Prueba 4: Predicción desde buffer",
+     sign is not None and confidence > 0,
+     f"sign={sign}, confidence={confidence}")
 
-# ── Prueba 5: La seña devuelta existe en el vocabulario ──
-test(
-    "Prueba 5: La seña detectada pertenece al vocabulario LSC",
-    sign in VOCABULARIO,
-    f"sign='{sign}' no está en el vocabulario"
-)
+# ── Prueba 5: Confianza entre 0 y 1 ──
+test("Prueba 5: Confianza entre 0 y 1", 0.0 <= confidence <= 1.0)
+
+# ── Prueba 6: Seña en vocabulario ──
+test("Prueba 6: Seña pertenece al vocabulario", sign in VOCABULARIO,
+     f"sign='{sign}'")
+
+# ── Prueba 7: Normalización 2 manos ──
+kp_126 = list(np.random.uniform(0.2, 0.8, KP_TOTAL))
+kp_norm = normalize_two_hands(kp_126)
+test("Prueba 7: Normalización centra al wrist",
+     abs(kp_norm[0]) < 1e-5 and abs(kp_norm[1]) < 1e-5)
+
+# ── Prueba 8: Rechaza inválidos ──
+sign_inv, conf_inv = classifier.predict([0.5] * 10)
+test("Prueba 8: Rechaza keypoints inválidos",
+     sign_inv is None and conf_inv == 0.0)
 
 # ── Resumen ──
-print(f"\n📊 Resultado: {passed}/5 pruebas exitosas")
+total = passed + failed
+print(f"\n📊 Resultado: {passed}/{total} pruebas exitosas")
 if failed == 0:
     print("🎉 Todas las pruebas pasaron.\n")
 else:

@@ -1,7 +1,7 @@
 # ============================================================
 #  Endpoint WebSocket — Comunicación en tiempo real
 #  ws://localhost:8000/ws
-#  Recibe frames de video y devuelve keypoints de la mano
+#  Recibe frames y clasifica señas con buffer temporal
 # ============================================================
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -12,7 +12,6 @@ import traceback
 
 router = APIRouter()
 
-# ── Singletons: se inicializan una sola vez al arrancar el servidor ──
 _mediapipe_servicio: MediaPipeService | None = None
 _classifier_servicio: SignClassifierService | None = None
 
@@ -35,25 +34,15 @@ def get_classifier_servicio() -> SignClassifierService:
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    Canal WebSocket para traducción en tiempo real.
-
-    Flujo:
-    1. Frontend abre conexión
-    2. Frontend envía frames como bytes cada 200ms
-    3. Backend procesa con MediaPipe y devuelve keypoints
-    4. El clasificador identifica la seña a partir de los keypoints
-    5. Devuelve {hand_detected, keypoints, predicted_sign, confidence}
-    """
     await websocket.accept()
     print("✅ Cliente conectado al WebSocket")
 
     mp_servicio = get_mediapipe_servicio()
     classifier = get_classifier_servicio()
+    buffer = classifier.create_buffer()
 
     try:
         while True:
-            # Recibir frame del frontend
             try:
                 data = await websocket.receive()
             except RuntimeError:
@@ -64,34 +53,43 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if "bytes" in data and data["bytes"]:
                 imagen_bytes = data["bytes"]
-
-                # 1. Procesar con MediaPipe
                 keypoints = mp_servicio.procesar_frame(imagen_bytes)
 
                 if keypoints:
-                    # 2. Clasificar seña
-                    predicted_sign, confidence = classifier.predict(keypoints)
+                    hand2_kps = keypoints[63:]
+                    hands_count = 2 if any(k != 0.0 for k in hand2_kps) else 1
+
+                    buffer_full = classifier.add_frame_to_buffer(buffer, keypoints)
+
+                    predicted_sign = None
+                    confidence = 0.0
+                    if buffer_full:
+                        predicted_sign, confidence = classifier.predict_from_buffer(buffer)
+
+                    buffer_progress = len(buffer) / classifier.sequence_length
 
                     respuesta = {
                         "hand_detected": True,
-                        "keypoints": keypoints,
+                        "hands_count": hands_count,
                         "num_keypoints": len(keypoints),
                         "predicted_sign": predicted_sign,
-                        "confidence": confidence
+                        "confidence": confidence,
+                        "buffer_progress": round(buffer_progress, 2)
                     }
                 else:
                     respuesta = {
                         "hand_detected": False,
-                        "keypoints": [],
+                        "hands_count": 0,
                         "num_keypoints": 0,
                         "predicted_sign": None,
-                        "confidence": 0.0
+                        "confidence": 0.0,
+                        "buffer_progress": round(len(buffer) / classifier.sequence_length, 2)
                     }
 
                 try:
                     await websocket.send_text(json.dumps(respuesta))
                 except Exception:
-                    break  # Cliente se desconectó mientras procesábamos
+                    break
 
             elif "text" in data and data["text"]:
                 try:
@@ -102,7 +100,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     pass
 
     except WebSocketDisconnect:
-        pass  # Desconexión normal, no es un error
+        pass
     except Exception as e:
         print(f"❌ Error inesperado en WebSocket: {e}")
         traceback.print_exc()
