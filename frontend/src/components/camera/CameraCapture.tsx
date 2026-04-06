@@ -77,7 +77,8 @@ export const CameraCapture: React.FC = () => {
     }
   };
 
-  const kpCount = response?.num_keypoints ?? 0;
+  const handsCount = response?.hands_count ?? 0;
+  const bufferProgress = response?.buffer_progress ?? 0;
 
   return (
     <>
@@ -143,13 +144,19 @@ export const CameraCapture: React.FC = () => {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#10b981">
                 <circle cx="12" cy="12" r="10"/>
               </svg>
-              Transmitiendo <span className="val">10 fps</span>
+              Transmitiendo <span className="val">5 fps</span>
             </div>
           )}
 
-          {kpCount > 0 && (
+          {handsCount > 0 && (
             <div className="info-chip">
-              🖐 <span className="val">{kpCount} keypoints</span> detectados
+              {handsCount === 2 ? '🤲' : '🖐'} <span className="val">{handsCount} mano{handsCount > 1 ? 's' : ''}</span> detectada{handsCount > 1 ? 's' : ''}
+            </div>
+          )}
+
+          {isCapturing && bufferProgress > 0 && bufferProgress < 1 && (
+            <div className="info-chip">
+              ⏳ Buffer: <span className="val">{Math.round(bufferProgress * 100)}%</span>
             </div>
           )}
         </div>

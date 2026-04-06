@@ -3,10 +3,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 // ── Tipos del mensaje que devuelve el backend ──
 export interface WebSocketResponse {
   hand_detected: boolean;
-  keypoints: number[];
+  hands_count: number;
   num_keypoints: number;
   predicted_sign: string | null;
   confidence: number;
+  buffer_progress: number;
 }
 
 interface UseWebSocketReturn {
