@@ -46,3 +46,6 @@ docker-compose.override.yml
 # ===== IDE =====
 .vscode/settings.json
 .idea/
+
+# ===== Claude Code =====
+.claude/

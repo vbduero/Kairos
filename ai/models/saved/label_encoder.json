@@ -1,22 +1,9 @@
 {
     "adios": 0,
-    "agua": 1,
-    "ayuda": 2,
-    "bano": 3,
-    "casa": 4,
-    "comer": 5,
-    "como estas": 6,
-    "doctor": 7,
-    "dormir": 8,
-    "emergencia": 9,
-    "escuela": 10,
-    "familia": 11,
-    "gracias": 12,
-    "hola": 13,
-    "no": 14,
-    "nombre": 15,
-    "policia": 16,
-    "por favor": 17,
-    "si": 18,
-    "trabajo": 19
+    "ayuda": 1,
+    "gracias": 2,
+    "hola": 3,
+    "no": 4,
+    "por favor": 5,
+    "si": 6
 }

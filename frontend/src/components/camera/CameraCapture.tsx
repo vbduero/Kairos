@@ -21,11 +21,20 @@ export const CameraCapture: React.FC = () => {
   const lastSignRef = useRef<string | null>(null);
   const noHandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Asignar el stream al elemento de video cuando esté disponible
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  // Iniciar el envío de frames cuando TODAS las condiciones estén listas:
+  // captura activa + WS conectado + stream disponible
+  // Esto resuelve la condición de carrera que requería dos clics
+  useEffect(() => {
+    if (!isCapturing || !isConnected || !stream || !videoRef.current) return;
+    startSendingFrames(videoRef.current);
+  }, [isCapturing, isConnected, stream, startSendingFrames]);
 
   // ── Manejar historial de señas ──
   useEffect(() => {
@@ -69,8 +78,9 @@ export const CameraCapture: React.FC = () => {
   const handleToggle = async () => {
     if (!isCapturing) {
       if (!isActive) await startCamera();
-      if (videoRef.current) startSendingFrames(videoRef.current);
       setIsCapturing(true);
+      // startSendingFrames se dispara automáticamente desde el useEffect
+      // cuando isCapturing, isConnected y stream estén listos
     } else {
       stopSendingFrames();
       setIsCapturing(false);

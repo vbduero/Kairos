@@ -5,7 +5,7 @@
 # ============================================================
 
 from sqlalchemy import Column, String, Text, Float, DateTime
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.types import Uuid as UUID
 from sqlalchemy.sql import func
 import uuid
 from app.core.database import Base

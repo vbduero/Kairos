@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 /* ── Google Fonts ── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -51,7 +53,7 @@ body::before {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 40px 16px 60px;
+  padding: 100px 16px 60px;
 }
 
 /* ── Header ── */
@@ -108,7 +110,6 @@ body::before {
 /* ── Main card ── */
 .main-card {
   width: 100%;
-  max-width: 900px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -118,6 +119,52 @@ body::before {
     0 0 0 1px rgba(255,255,255,0.05),
     0 32px 80px rgba(0,0,0,0.5),
     0 0 60px rgba(99,102,241,0.05);
+}
+
+/* ── Translator two-column grid ── */
+.translator-grid {
+  width: 100%;
+  max-width: 1380px;
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .translator-grid {
+    grid-template-columns: 1fr;
+    max-width: 900px;
+  }
+}
+
+/* ── Avatar section (right panel viewport) ── */
+.avatar-section {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #080c17;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.avatar-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 4px 10px;
+  background: rgba(99,102,241,0.2);
+  border: 1px solid rgba(99,102,241,0.3);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #a5b4fc;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 
 /* ── Camera section ── */

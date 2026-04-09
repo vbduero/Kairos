@@ -1,5 +1,6 @@
 import React from 'react';
 import { CameraCapture } from '../components/camera/CameraCapture';
+import { AvatarContainer } from '../components/avatar/AvatarContainer';
 
 const TranslatorPage: React.FC = () => (
   <div className="page">
@@ -13,9 +14,14 @@ const TranslatorPage: React.FC = () => (
       <p>Traductor en tiempo real de Lengua de Señas Colombiana · LSC</p>
     </header>
 
-    {/* Card */}
-    <main className="main-card">
-      <CameraCapture />
+    {/* Two-column layout: camera left, avatar right */}
+    <main className="translator-grid">
+      <div className="main-card">
+        <CameraCapture />
+      </div>
+      <div className="main-card">
+        <AvatarContainer />
+      </div>
     </main>
 
     <footer className="footer">
@@ -25,4 +31,3 @@ const TranslatorPage: React.FC = () => (
 );
 
 export default TranslatorPage;
-

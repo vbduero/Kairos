@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useUiStore } from '../store/uiStore';
 
 // ── Tipos del mensaje que devuelve el backend ──
 export interface WebSocketResponse {
@@ -35,6 +36,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
     ws.onopen = () => {
       console.log('WebSocket connected');
       setIsConnected(true);
+      useUiStore.getState().addToast('Conexión establecida con el servidor AI', 'success');
     };
 
     ws.onmessage = (event) => {
@@ -48,6 +50,15 @@ export const useWebSocket = (): UseWebSocketReturn => {
 
     ws.onclose = () => {
       console.log('WebSocket disconnected. Reconnecting in 3s...');
+      
+      // Only toast if it was previously connected, to avoid spamming on load
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        useUiStore.getState().addToast('Conexión perdida. Reconectando...', 'error');
+      } else if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+        // If it fails to connect entirely
+        useUiStore.getState().addToast('Intentando reconectar con el servidor AI...', 'info');
+      }
+
       setIsConnected(false);
       stopSendingFrames();
       setTimeout(connect, 3000);

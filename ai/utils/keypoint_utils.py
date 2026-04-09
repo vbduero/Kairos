@@ -33,15 +33,28 @@ def normalize_hand(hand_kp: np.ndarray) -> np.ndarray:
     """
     Normaliza los keypoints de una mano (21, 3).
     Si la mano es ceros (no detectada), la deja como ceros.
+
+    Mejoras:
+    - Usa solo XY para calcular la escala (la profundidad Z de MediaPipe es ruidosa
+      y colapsa la distancia cuando la mano está perpendicular a la cámara).
+    - Clampea el resultado a [-2, 2] para eliminar outliers por keypoints corruptos.
     """
     if np.all(np.abs(hand_kp) < 1e-6):
         return hand_kp
-    
+
     wrist = hand_kp[0].copy()
     hand_kp = hand_kp - wrist
-    max_dist = np.max(np.linalg.norm(hand_kp, axis=1))
+
+    # Escalar usando solo el plano XY: más estable cuando la mano rota en profundidad
+    xy_dists = np.linalg.norm(hand_kp[:, :2], axis=1)
+    max_dist = np.max(xy_dists)
+
     if max_dist > 1e-6:
         hand_kp = hand_kp / max_dist
+
+    # Clampear outliers (keypoints corruptos o mano en borde del frame)
+    hand_kp = np.clip(hand_kp, -2.0, 2.0)
+
     return hand_kp
 
 

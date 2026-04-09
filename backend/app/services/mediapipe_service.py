@@ -28,8 +28,8 @@ class MediaPipeService:
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.5,
+            min_detection_confidence=0.5,   # 0.7 → 0.5: detecta manos en ángulos difíciles y baja luz
+            min_tracking_confidence=0.4,    # 0.5 → 0.4: mantiene tracking con más oclusiones
         )
         print("✅ MediaPipe inicializado en modo Windows (2 manos)")
 
@@ -54,9 +54,9 @@ class MediaPipeService:
             base_options=base_options,
             running_mode=mp_vision.RunningMode.IMAGE,
             num_hands=2,
-            min_hand_detection_confidence=0.7,
-            min_hand_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_hand_detection_confidence=0.5,   # 0.7 → 0.5
+            min_hand_presence_confidence=0.4,     # 0.5 → 0.4
+            min_tracking_confidence=0.4,          # 0.5 → 0.4
         )
         self.detector = mp_vision.HandLandmarker.create_from_options(options)
         self.mp = mp
