@@ -25,7 +25,9 @@ VOCABULARIO = [
     "hola", "adios", "gracias", "por favor", "si",
     "no", "ayuda", "agua", "casa", "familia",
     "trabajo", "escuela", "comer", "dormir", "bano",
-    "doctor", "policia", "emergencia", "nombre", "como estas"
+    "doctor", "policia", "emergencia", "nombre", "como estas",
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+    "n", "ñ", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
 ]
 
 MUESTRAS_POR_SENA = 30

@@ -1,0 +1,14 @@
+# Normalizar saltos de línea: LF en el repositorio, conversión automática en checkout
+* text=auto eol=lf
+
+# Binarios — sin conversión
+*.npy binary
+*.h5 binary
+*.tflite binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

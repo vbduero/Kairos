@@ -34,8 +34,11 @@ def preprocesar():
 
     X_all = []
     y_all = []
-    clases = sorted([d for d in os.listdir(data_dir)
-                      if os.path.isdir(os.path.join(data_dir, d))])
+    clases = sorted([
+        d for d in os.listdir(data_dir)
+        if os.path.isdir(os.path.join(data_dir, d))
+        and any(f.endswith('.npy') for f in os.listdir(os.path.join(data_dir, d)))
+    ])
 
     if not clases:
         print("❌ No se encontraron clases en el directorio.")
