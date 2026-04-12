@@ -15,8 +15,10 @@ class MediaPipeService:
     NUM_KEYPOINTS_PER_HAND = 63
     NUM_KEYPOINTS_TOTAL = 126
 
-    def __init__(self):
+    def __init__(self, min_detection_confidence=0.80, min_tracking_confidence=0.80):
         self.es_windows = sys.platform == "win32"
+        self._det_conf = min_detection_confidence
+        self._trk_conf = min_tracking_confidence
         if self.es_windows:
             self._init_windows()
         else:
@@ -28,8 +30,9 @@ class MediaPipeService:
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
-            min_detection_confidence=0.5,   # 0.7 → 0.5: detecta manos en ángulos difíciles y baja luz
-            min_tracking_confidence=0.4,    # 0.5 → 0.4: mantiene tracking con más oclusiones
+            model_complexity=1,          # más rápido (menor latencia por frame)
+            min_detection_confidence=self._det_conf,
+            min_tracking_confidence=self._trk_conf,
         )
         print("✅ MediaPipe inicializado en modo Windows (2 manos)")
 
@@ -54,9 +57,9 @@ class MediaPipeService:
             base_options=base_options,
             running_mode=mp_vision.RunningMode.IMAGE,
             num_hands=2,
-            min_hand_detection_confidence=0.5,   # 0.7 → 0.5
-            min_hand_presence_confidence=0.4,     # 0.5 → 0.4
-            min_tracking_confidence=0.4,          # 0.5 → 0.4
+            min_hand_detection_confidence=self._det_conf,
+            min_hand_presence_confidence=self._trk_conf,
+            min_tracking_confidence=self._trk_conf,
         )
         self.detector = mp_vision.HandLandmarker.create_from_options(options)
         self.mp = mp

@@ -3,27 +3,17 @@ title Manos que Hablan - Pipeline de Datos
 
 :: ================================================================
 ::  recolectar_senas.bat
-::  Usa Git Bash para correr los scripts exactamente igual que
-::  cuando se hace manualmente desde la terminal.
 :: ================================================================
 
-set BASH="C:\Program Files\Git\bin\bash.exe"
-set VENV=backend/venv
+cd /d "%~dp0"
+set PYTHON=venv\Scripts\python.exe
+set PYTHONIOENCODING=utf-8
+chcp 65001 > nul
 
-if not exist %BASH% (
+if not exist "%PYTHON%" (
     echo.
-    echo  [ERROR] No se encontro Git Bash en C:\Program Files\Git\
-    echo  Instala Git para Windows desde https://git-scm.com
-    echo.
-    pause
-    exit /b 1
-)
-
-if not exist "%~dp0backend\venv\Scripts\activate" (
-    echo.
-    echo  [ERROR] No se encontro el entorno virtual en backend\venv\
+    echo  [ERROR] No se encontro el entorno virtual en venv\
     echo  Instala las dependencias primero con:
-    echo    cd backend
     echo    python -m venv venv
     echo    venv\Scripts\activate
     echo    pip install -r requirements.txt
@@ -77,7 +67,7 @@ echo   - Presiona Q para guardar y salir
 echo.
 pause > nul
 
-start "Recoleccion LSC" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/recolectar_datos.py; echo; read -p 'Presiona ENTER para cerrar...'"
+start "Recoleccion LSC" /WAIT cmd /c "%PYTHON% ai\scripts\recolectar_datos.py & echo. & pause"
 
 echo.
 echo  [OK] Sesion finalizada. Los datos quedan en ai/datasets/sequences/
@@ -100,8 +90,8 @@ echo.
 
 echo  [1/4] Augmentando secuencias...
 echo  ----------------------------------------------------------------
-start "Augmentando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/augmentar_datos.py"
-if %ERRORLEVEL% neq 0 (
+"%PYTHON%" ai\scripts\augmentar_datos.py
+if errorlevel 1 (
     echo  [ERROR] augmentar_datos.py fallo. Verifica que existan secuencias en ai/datasets/sequences/
     pause
     goto MENU
@@ -111,8 +101,8 @@ echo.
 
 echo  [2/4] Preprocesando datos...
 echo  ----------------------------------------------------------------
-start "Preprocesando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/preprocesar_datos.py"
-if %ERRORLEVEL% neq 0 (
+"%PYTHON%" ai\scripts\preprocesar_datos.py
+if errorlevel 1 (
     echo  [ERROR] preprocesar_datos.py fallo.
     pause
     goto MENU
@@ -122,8 +112,8 @@ echo.
 
 echo  [3/4] Entrenando modelo LSTM (puede tardar varios minutos)...
 echo  ----------------------------------------------------------------
-start "Entrenando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/entrenar_modelo.py"
-if %ERRORLEVEL% neq 0 (
+"%PYTHON%" ai\scripts\entrenar_modelo.py
+if errorlevel 1 (
     echo  [ERROR] entrenar_modelo.py fallo.
     pause
     goto MENU
@@ -133,8 +123,8 @@ echo.
 
 echo  [4/4] Verificando el clasificador...
 echo  ----------------------------------------------------------------
-start "Verificando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/test_classifier.py"
-if %ERRORLEVEL% neq 0 (
+"%PYTHON%" ai\scripts\test_classifier.py
+if errorlevel 1 (
     echo  [AVISO] test_classifier.py reporto problemas. Revisa los resultados.
     pause
     goto MENU
@@ -170,8 +160,8 @@ echo   el pipeline de entrenamiento iniciara automaticamente.
 echo.
 pause > nul
 
-start "Recoleccion LSC" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/recolectar_datos.py; echo; read -p 'Presiona ENTER para cerrar...'"
-if %ERRORLEVEL% neq 0 (
+start "Recoleccion LSC" /WAIT cmd /c "%PYTHON% ai\scripts\recolectar_datos.py & echo. & pause"
+if errorlevel 1 (
     echo  [ERROR] La recoleccion fallo. No se iniciara el entrenamiento.
     pause
     goto MENU
@@ -181,23 +171,23 @@ echo  [OK] Recoleccion guardada. Iniciando pipeline...
 echo.
 
 echo  [1/4] Augmentando...
-start "Augmentando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/augmentar_datos.py"
-if %ERRORLEVEL% neq 0 ( echo  [ERROR] augmentar_datos.py fallo. & pause & goto MENU )
+"%PYTHON%" ai\scripts\augmentar_datos.py
+if errorlevel 1 ( echo  [ERROR] augmentar_datos.py fallo. & pause & goto MENU )
 echo  [OK] Listo.
 
 echo  [2/4] Preprocesando...
-start "Preprocesando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/preprocesar_datos.py"
-if %ERRORLEVEL% neq 0 ( echo  [ERROR] preprocesar_datos.py fallo. & pause & goto MENU )
+"%PYTHON%" ai\scripts\preprocesar_datos.py
+if errorlevel 1 ( echo  [ERROR] preprocesar_datos.py fallo. & pause & goto MENU )
 echo  [OK] Listo.
 
 echo  [3/4] Entrenando...
-start "Entrenando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/entrenar_modelo.py"
-if %ERRORLEVEL% neq 0 ( echo  [ERROR] entrenar_modelo.py fallo. & pause & goto MENU )
+"%PYTHON%" ai\scripts\entrenar_modelo.py
+if errorlevel 1 ( echo  [ERROR] entrenar_modelo.py fallo. & pause & goto MENU )
 echo  [OK] Listo.
 
 echo  [4/4] Verificando...
-start "Verificando" /WAIT %BASH% --login -c "cd '%~dp0' && source %VENV%/Scripts/activate && python ai/scripts/test_classifier.py"
-if %ERRORLEVEL% neq 0 ( echo  [AVISO] test_classifier.py reporto problemas. & pause & goto MENU )
+"%PYTHON%" ai\scripts\test_classifier.py
+if errorlevel 1 ( echo  [AVISO] test_classifier.py reporto problemas. & pause & goto MENU )
 echo  [OK] Listo.
 
 echo.

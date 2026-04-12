@@ -50,8 +50,12 @@ def augmentar():
 
         for archivo in archivos:
             seq = np.load(os.path.join(dir_sena, archivo))
-            if seq.shape != (SEQUENCE_LEN, KP_TOTAL):
+            if seq.ndim != 2 or seq.shape[1] != KP_TOTAL or seq.shape[0] < SEQUENCE_LEN:
                 continue
+            # Subsamplear uniformemente si la secuencia es más larga que SEQUENCE_LEN
+            if seq.shape[0] > SEQUENCE_LEN:
+                indices = np.linspace(0, seq.shape[0] - 1, SEQUENCE_LEN, dtype=int)
+                seq = seq[indices]
 
             seq_norm = normalize_sequence(seq)
             np.save(os.path.join(dir_aug, f"orig_{archivo}"), seq_norm)

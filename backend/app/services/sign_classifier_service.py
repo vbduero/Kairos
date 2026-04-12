@@ -136,7 +136,8 @@ class SignClassifierService:
 
         # Estado interno
         self.interpreter   = None   # TFLite interpreter (si TF disponible)
-        self.numpy_engine  = None   # _NumpyLSTMEngine (fallback)
+        self.keras_model   = None   # Keras model (fallback si TFLite falla)
+        self.numpy_engine  = None   # _NumpyLSTMEngine (fallback final)
         self.labels        = {}
         self.input_details = None
         self.output_details = None
@@ -158,8 +159,10 @@ class SignClassifierService:
             print(f"📝 Modelo tipo: {self.model_type}, seq_len: {self.sequence_length}, kp/frame: {self.kp_per_frame}")
 
     def _load_model(self):
-        # ── Intento A: TFLite (TF o ai-edge-litert) ──────────────
-        if TF_AVAILABLE and os.path.exists(self.tflite_path):
+        # ── Intento A: TFLite — solo para modelos dense (no LSTM) ─
+        # Los modelos LSTM usan FlexTensorListReserve que TFLite estándar
+        # no soporta sin el Flex delegate, así que los saltamos directamente.
+        if self.model_type != "lstm" and TF_AVAILABLE and os.path.exists(self.tflite_path):
             try:
                 self.interpreter = _tf_interpreter(model_path=self.tflite_path)
                 self.interpreter.allocate_tensors()
@@ -171,7 +174,17 @@ class SignClassifierService:
                 logging.warning(f"TFLite falló: {e}")
                 self.interpreter = None
 
-        # ── Intento B: numpy puro desde .h5 ──────────────────────
+        # ── Intento B: Keras/TF desde .h5 (más rápido que numpy) ─
+        if TF_AVAILABLE and os.path.exists(self.h5_path):
+            try:
+                import tensorflow as tf
+                self.keras_model = tf.keras.models.load_model(self.h5_path)
+                print("✅ Modelo LSC cargado via Keras (.h5)")
+                return
+            except Exception as e:
+                logging.warning(f"Keras falló: {e}")
+
+        # ── Intento C: numpy puro desde .h5 ──────────────────────
         if os.path.exists(self.h5_path):
             try:
                 self.numpy_engine = _NumpyLSTMEngine(self.h5_path)
@@ -201,35 +214,60 @@ class SignClassifierService:
         return len(buffer) >= self.sequence_length
 
     # ── Predicción desde buffer completo ─────────────────────────
-    def predict_from_buffer(self, buffer: deque) -> Tuple[Optional[str], float]:
+    def predict_from_buffer(self, buffer: deque) -> Tuple[Optional[str], float, float]:
+        """Retorna (sign, confidence, entropy_normalizada)."""
         if not self.labels or len(buffer) < self.sequence_length:
-            return None, 0.0
+            return None, 0.0, 1.0
 
-        sequence = np.array(list(buffer), dtype=np.float32)  # (15, 126)
-        input_data = np.expand_dims(sequence, axis=0)         # (1, 15, 126)
+        sequence = np.array(list(buffer), dtype=np.float32)  # (5, 126)
+        input_data = np.expand_dims(sequence, axis=0)         # (1, 5, 126)
 
         return self._run_inference(input_data)
 
     # ── Inferencia ────────────────────────────────────────────────
-    def _run_inference(self, input_data: np.ndarray) -> Tuple[Optional[str], float]:
-        # Ruta A: TFLite
+    def _run_inference(self, input_data: np.ndarray) -> Tuple[Optional[str], float, float]:
+        """
+        Retorna (sign, confidence, entropy_normalizada).
+
+        entropy_normalizada ∈ [0, 1]:
+          ≈ 0  → modelo muy seguro (distribución concentrada en una clase)
+          ≈ 1  → modelo completamente inseguro (distribución uniforme)
+
+        Se usa para rechazar señas desconocidas: aunque la clase ganadora
+        tenga una confianza aceptable, si la entropía es alta significa que
+        el modelo está repartiendo probabilidad entre varias clases y no
+        ha reconocido nada con claridad.
+        """
+        probs = None
+
         if self.interpreter is not None:
             self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
             self.interpreter.invoke()
             probs = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
-            idx = int(np.argmax(probs))
-            return self.labels.get(idx, "Desconocido"), float(probs[idx])
 
-        # Ruta B: numpy LSTM
-        if self.numpy_engine is not None:
+        elif self.keras_model is not None:
+            probs = self.keras_model.predict(input_data, verbose=0)[0]
+
+        elif self.numpy_engine is not None:
             probs = self.numpy_engine.predict(input_data)[0]
-            idx = int(np.argmax(probs))
-            return self.labels.get(idx, "Desconocido"), float(probs[idx])
 
-        return None, 0.0
+        if probs is None:
+            return None, 0.0, 1.0
+
+        idx = int(np.argmax(probs))
+        confidence = float(probs[idx])
+
+        # Entropía de Shannon normalizada a [0, 1]
+        n = len(probs)
+        entropy = float(
+            -np.sum(probs * np.log2(probs + 1e-10)) / np.log2(n)
+        )
+
+        return self.labels.get(idx, "Desconocido"), confidence, entropy
 
     # ── Predicción frame único (legacy) ──────────────────────────
     def predict(self, keypoints: list) -> Tuple[Optional[str], float]:
+        """Interfaz legacy: retorna solo (sign, confidence)."""
         if not self.labels:
             return None, 0.0
         if len(keypoints) == KP_TOTAL:
@@ -243,4 +281,5 @@ class SignClassifierService:
             expected = self.input_details[0]['shape'][-1]
             if input_data.shape[-1] > expected:
                 input_data = input_data[:, :expected]
-        return self._run_inference(input_data)
+        sign, confidence, _ = self._run_inference(input_data)
+        return sign, confidence

@@ -53,7 +53,13 @@ def preprocesar():
 
         for archivo in archivos:
             seq = np.load(os.path.join(dir_sena, archivo))
-            if seq.shape == (SEQUENCE_LEN, KP_TOTAL):
+
+            # Aceptar secuencias de cualquier longitud >= SEQUENCE_LEN
+            # y subsamplear uniformemente hasta SEQUENCE_LEN frames
+            if seq.ndim == 2 and seq.shape[1] == KP_TOTAL and seq.shape[0] >= SEQUENCE_LEN:
+                if seq.shape[0] > SEQUENCE_LEN:
+                    indices = np.linspace(0, seq.shape[0] - 1, SEQUENCE_LEN, dtype=int)
+                    seq = seq[indices]
                 if data_dir == SEQUENCES_DIR:
                     seq = normalize_sequence(seq)
                 X_all.append(seq)

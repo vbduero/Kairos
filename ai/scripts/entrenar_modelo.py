@@ -108,17 +108,22 @@ def entrenar():
     plt.savefig(plot_path)
     print(f"📈 Gráfica guardada en {plot_path}")
 
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS, tf.lite.OpsSet.SELECT_TF_OPS]
-    converter._experimental_lower_tensor_list_ops = False
-    try:
-        tflite_model = converter.convert()
-        tflite_path = os.path.join(MODELS_DIR, 'lsc_classifier.tflite')
-        with open(tflite_path, 'wb') as f:
-            f.write(tflite_model)
-        print(f"⚡ Modelo TFLite exportado en {tflite_path}")
-    except Exception as e:
-        print(f"⚠️ Advertencia: No se pudo exportar a TFLite: {e}")
+    # TFLite solo para modelos Dense — los LSTM usan ops (FlexTensorListReserve)
+    # que el runtime estándar de TFLite no soporta, así que se omite la exportación.
+    if not use_lstm:
+        converter = tf.lite.TFLiteConverter.from_keras_model(model)
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS, tf.lite.OpsSet.SELECT_TF_OPS]
+        converter._experimental_lower_tensor_list_ops = False
+        try:
+            tflite_model = converter.convert()
+            tflite_path = os.path.join(MODELS_DIR, 'lsc_classifier.tflite')
+            with open(tflite_path, 'wb') as f:
+                f.write(tflite_model)
+            print(f"⚡ Modelo TFLite exportado en {tflite_path}")
+        except Exception as e:
+            print(f"⚠️ Advertencia: No se pudo exportar a TFLite: {e}")
+    else:
+        print(f"ℹ️  TFLite omitido para LSTM (se usa el .h5 directamente)")
 
     meta = {
         "type": "lstm" if use_lstm else "dense",

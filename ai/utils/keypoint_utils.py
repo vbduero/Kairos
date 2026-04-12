@@ -9,7 +9,7 @@ from typing import List
 # Constantes
 KP_PER_HAND = 63   # 21 puntos × 3 coordenadas
 KP_TOTAL = 126     # 2 manos
-SEQUENCE_LEN = 15  # frames por secuencia
+SEQUENCE_LEN = 5   # frames por secuencia
 
 
 def normalize_keypoints(keypoints: list) -> list:

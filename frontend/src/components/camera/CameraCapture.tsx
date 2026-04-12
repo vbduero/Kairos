@@ -15,11 +15,43 @@ export const CameraCapture: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { stream, error, startCamera, stopCamera, isActive } = useCamera();
   const { isConnected, response, startSendingFrames, stopSendingFrames } = useWebSocket();
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.85);
-  const [history, setHistory] = useState<SignEntry[]>([]);
-  const lastSignRef = useRef<string | null>(null);
-  const noHandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isCapturing, setIsCapturing]   = useState(false);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.50);
+  const [history, setHistory]           = useState<SignEntry[]>([]);
+  const [lastValidPrediction, setLastValidPrediction] = useState<{ sign: string; confidence: number } | null>(null);
+
+  const lastSignRef      = useRef<string | null>(null);
+  // Timer que limpia la seña 1 s después de la última predicción.
+  // Con COOLDOWN_FRAMES=16 en el backend, la próxima predicción del mismo
+  // signo llega a los 1.15 s, por lo que este timer siempre se dispara primero.
+  const autoClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Timer de debounce para la pérdida de mano: evita el parpadeo cuando
+  // MediaPipe pierde la detección brevemente (1-2 frames) y la recupera.
+  const handLostTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Auto-clear: limpia la seña 1 s después de que se MUESTRA por primera vez ──
+  // Nota: el timer solo se (re)inicia cuando lastValidPrediction cambia a un
+  // objeto NUEVO (distinto signo). Para el mismo signo, setLastValidPrediction
+  // devuelve la referencia anterior → React no hace re-render → el timer no se
+  // resetea → se dispara en 1 s aunque el backend siga prediciendo el mismo signo.
+  useEffect(() => {
+  if (!lastValidPrediction) return;
+  if (autoClearTimerRef.current) clearTimeout(autoClearTimerRef.current);
+  
+  // Solo limpiar si la mano NO está presente
+  // Mientras la mano esté detectada, el backend sigue prediciendo
+  // y la seña se actualiza sola
+  autoClearTimerRef.current = setTimeout(() => {
+    // Solo limpiar si la mano ya no está detectada
+    if (!response?.hand_detected) {
+      setLastValidPrediction(null);
+    }
+  }, 1500);  // aumentar a 1.5s por seguridad
+
+  return () => {
+    if (autoClearTimerRef.current) clearTimeout(autoClearTimerRef.current);
+  };
+}, [lastValidPrediction, response?.hand_detected]);
 
   // Asignar el stream al elemento de video cuando esté disponible
   useEffect(() => {
@@ -28,66 +60,84 @@ export const CameraCapture: React.FC = () => {
     }
   }, [stream]);
 
-  // Iniciar el envío de frames cuando TODAS las condiciones estén listas:
-  // captura activa + WS conectado + stream disponible
-  // Esto resuelve la condición de carrera que requería dos clics
+  // Iniciar el envío de frames cuando TODAS las condiciones estén listas
   useEffect(() => {
     if (!isCapturing || !isConnected || !stream || !videoRef.current) return;
     startSendingFrames(videoRef.current);
   }, [isCapturing, isConnected, stream, startSendingFrames]);
 
-  // ── Manejar historial de señas ──
+  // ── Manejar respuestas del backend ──
   useEffect(() => {
     if (!response) return;
 
     if (!response.hand_detected) {
-      // Limpiar historial si no hay mano por más de 2 segundos
-      if (!noHandTimerRef.current) {
-        noHandTimerRef.current = setTimeout(() => {
+      // Debounce de 300 ms: tolera drops breves de MediaPipe sin parpadear.
+      // Si la mano reaparece antes de 300 ms, cancela la limpieza.
+      if (!handLostTimerRef.current) {
+        handLostTimerRef.current = setTimeout(() => {
+          // Mano perdida: reset completo del estado de display
           lastSignRef.current = null;
-        }, 2000);
+          setLastValidPrediction(null);
+          if (autoClearTimerRef.current) {
+            clearTimeout(autoClearTimerRef.current);
+            autoClearTimerRef.current = null;
+          }
+          handLostTimerRef.current = null;
+        }, 200);  // 200 ms: tolera drops breves sin parpadear (4 frames a 20fps)
       }
       return;
     }
 
-    // Cancelar timer de limpieza si hay mano
-    if (noHandTimerRef.current) {
-      clearTimeout(noHandTimerRef.current);
-      noHandTimerRef.current = null;
+    // Mano detectada → cancelar cualquier limpieza pendiente por pérdida
+    if (handLostTimerRef.current) {
+      clearTimeout(handLostTimerRef.current);
+      handLostTimerRef.current = null;
     }
 
-    // Agregar al historial si la seña cambió y supera el umbral
-    const sign = response.predicted_sign;
+    const sign       = response.predicted_sign;
     const confidence = response.confidence;
 
-    if (sign && confidence >= confidenceThreshold && sign !== lastSignRef.current) {
-      lastSignRef.current = sign;
-      setHistory(prev => {
-        const nueva: SignEntry = { sign, confidence, timestamp: new Date() };
-        return [nueva, ...prev].slice(0, 5); // máximo 5 entradas
+    if (sign && confidence >= confidenceThreshold) {
+      // Actualización funcional: si el signo es el MISMO que ya se muestra,
+      // se devuelve la referencia anterior → React no crea nuevo estado →
+      // el useEffect de auto-clear NO se vuelve a ejecutar → el timer no se
+      // resetea → se dispara en 1 s aunque el backend siga prediciendo el mismo signo.
+      // Si el signo ES DIFERENTE, crea objeto nuevo → timer se reinicia → 1 s extra.
+      setLastValidPrediction(prev => {
+        if (prev?.sign === sign) return prev;   // misma seña: timer intacto
+        return { sign, confidence };             // seña nueva: timer se reinicia
       });
+
+      // Historial: agregar solo cuando la seña cambia
+      if (sign !== lastSignRef.current) {
+        lastSignRef.current = sign;
+        setHistory(prev => {
+          const nueva: SignEntry = { sign, confidence, timestamp: new Date() };
+          return [nueva, ...prev].slice(0, 5);
+        });
+      }
     }
   }, [response, confidenceThreshold]);
 
+  // Cleanup al desmontar
   useEffect(() => () => {
     stopSendingFrames();
     stopCamera();
-    if (noHandTimerRef.current) clearTimeout(noHandTimerRef.current);
+    if (autoClearTimerRef.current)  clearTimeout(autoClearTimerRef.current);
+    if (handLostTimerRef.current)   clearTimeout(handLostTimerRef.current);
   }, []);
 
   const handleToggle = async () => {
     if (!isCapturing) {
       if (!isActive) await startCamera();
       setIsCapturing(true);
-      // startSendingFrames se dispara automáticamente desde el useEffect
-      // cuando isCapturing, isConnected y stream estén listos
     } else {
       stopSendingFrames();
       setIsCapturing(false);
     }
   };
 
-  const handsCount = response?.hands_count ?? 0;
+  const handsCount    = (response?.hand_detected && response?.hands_count) ? response.hands_count : 0;
   const bufferProgress = response?.buffer_progress ?? 0;
 
   return (
@@ -154,7 +204,7 @@ export const CameraCapture: React.FC = () => {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#10b981">
                 <circle cx="12" cy="12" r="10"/>
               </svg>
-              Transmitiendo <span className="val">5 fps</span>
+              Transmitiendo <span className="val">20 fps</span>
             </div>
           )}
 
@@ -173,8 +223,8 @@ export const CameraCapture: React.FC = () => {
 
         {/* Seña detectada */}
         <SignDisplay
-          sign={response?.predicted_sign ?? null}
-          confidence={response?.confidence ?? 0}
+          sign={lastValidPrediction?.sign ?? null}
+          confidence={lastValidPrediction?.confidence ?? 0}
           handDetected={response?.hand_detected ?? false}
           confidenceThreshold={confidenceThreshold}
         />

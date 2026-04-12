@@ -52,7 +52,8 @@ def guardar_secuencia(sena, secuencia):
 
 
 def recolectar():
-    service = MediaPipeService()
+    # Umbrales más permisivos para grabación (no necesitamos filtrar falsos positivos aquí)
+    service = MediaPipeService(min_detection_confidence=0.3, min_tracking_confidence=0.3)
     cap = cv2.VideoCapture(0)
     
     if not cap.isOpened():

@@ -15,12 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from app.services.sign_classifier_service import SignClassifierService
 from utils.keypoint_utils import normalize_two_hands, KP_TOTAL
 
-VOCABULARIO = [
-    "hola", "adios", "gracias", "por favor", "si",
-    "no", "ayuda", "agua", "casa", "familia",
-    "trabajo", "escuela", "comer", "dormir", "bano",
-    "doctor", "policia", "emergencia", "nombre", "como estas"
-]
+VOCABULARIO = None  # Se carga dinámicamente desde el modelo
 
 passed = 0
 failed = 0
@@ -40,7 +35,7 @@ classifier = SignClassifierService()
 
 # ── Prueba 1: Modelo cargó ──
 test("Prueba 1: Modelo y labels cargados",
-     classifier.interpreter is not None and len(classifier.labels) == 20)
+     classifier.keras_model is not None and len(classifier.labels) > 0)
 
 # ── Prueba 2: Tipo de modelo ──
 test(f"Prueba 2: Tipo de modelo ({classifier.model_type})",
@@ -55,7 +50,7 @@ test("Prueba 3: Buffer se llena correctamente",
      is_full and len(buffer) == classifier.sequence_length)
 
 # ── Prueba 4: Predicción desde buffer ──
-sign, confidence = classifier.predict_from_buffer(buffer)
+sign, confidence, entropy = classifier.predict_from_buffer(buffer)
 test("Prueba 4: Predicción desde buffer",
      sign is not None and confidence > 0,
      f"sign={sign}, confidence={confidence}")
@@ -64,7 +59,8 @@ test("Prueba 4: Predicción desde buffer",
 test("Prueba 5: Confianza entre 0 y 1", 0.0 <= confidence <= 1.0)
 
 # ── Prueba 6: Seña en vocabulario ──
-test("Prueba 6: Seña pertenece al vocabulario", sign in VOCABULARIO,
+vocabulario_real = list(classifier.labels.values())
+test("Prueba 6: Seña pertenece al vocabulario", sign in vocabulario_real,
      f"sign='{sign}'")
 
 # ── Prueba 7: Normalización 2 manos ──

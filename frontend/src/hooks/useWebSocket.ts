@@ -40,13 +40,26 @@ export const useWebSocket = (): UseWebSocketReturn => {
     };
 
     ws.onmessage = (event) => {
-      try {
-        const data: WebSocketResponse = JSON.parse(event.data);
-        setResponse(data);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+  try {
+    const data: WebSocketResponse = JSON.parse(event.data);
+    
+    setResponse(prev => {
+      // Si el backend no manda seña nueva pero la mano sigue detectada,
+      // conservar la última seña en pantalla
+      if (data.hand_detected && data.predicted_sign === null && prev?.predicted_sign) {
+        return {
+          ...data,
+          predicted_sign: prev.predicted_sign,
+          confidence: prev.confidence,
+        };
       }
-    };
+      // Si la mano desapareció, limpiar todo
+      return data;
+    });
+  } catch (error) {
+    console.error('Error parsing WebSocket message:', error);
+  }
+};
 
     ws.onclose = () => {
       console.log('WebSocket disconnected. Reconnecting in 3s...');
@@ -99,14 +112,18 @@ export const useWebSocket = (): UseWebSocketReturn => {
     intervalRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN &&
           ctx && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
-        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+        // Flip horizontally to match training data (collected with cv2.flip)
+        ctx.save();
+        ctx.scale(-1, 1);
+        ctx.drawImage(videoElement, -canvas.width, 0, canvas.width, canvas.height);
+        ctx.restore();
         canvas.toBlob((blob) => {
           if (blob && wsRef.current?.readyState === WebSocket.OPEN) {
             blob.arrayBuffer().then(buffer => wsRef.current!.send(buffer));
           }
         }, 'image/jpeg', 0.7);
       }
-    }, 200);
+    }, 40);  // 25 fps — llena el buffer de 5 frames en 200 ms en vez de 250 ms
   }, []);
 
   const stopSendingFrames = useCallback(() => {
