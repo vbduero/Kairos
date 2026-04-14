@@ -1,74 +1,174 @@
-import React from 'react';
-import { Target, Users, Zap, BrainCircuit } from 'lucide-react';
+import { Target, Zap, BrainCircuit, Code2, Globe } from 'lucide-react';
+
+const TEAM = [
+  {
+    name: 'Juan Camilo Neuta',
+    role: 'Full Stack Developer',
+    bio: 'Arquitectura backend, modelos LSTM y pipeline de datos LSC.',
+    initials: 'JN',
+    from: '#6366f1',
+    to: '#a855f7',
+    shadow: 'rgba(99,102,241,0.45)',
+  },
+  {
+    name: 'Cristian Tafur',
+    role: 'Full Stack Developer',
+    bio: 'Integración MediaPipe, captura de señas y diseño de interfaz.',
+    initials: 'CT',
+    from: '#10b981',
+    to: '#06b6d4',
+    shadow: 'rgba(16,185,129,0.45)',
+  },
+  {
+    name: 'Santiago Tovar',
+    role: 'Full Stack Developer',
+    bio: 'WebSocket en tiempo real, clasificador LSC y optimización frontend.',
+    initials: 'ST',
+    from: '#f59e0b',
+    to: '#ef4444',
+    shadow: 'rgba(245,158,11,0.45)',
+  },
+];
 
 export default function AboutPage() {
   return (
-    <div className="page min-h-screen flex flex-col justify-center py-20 px-4 w-full items-center relative overflow-hidden">
-      {/* Background Orbs */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-[#6366f1] opacity-[0.07] blur-[120px] pointer-events-none rounded-full" />
-      <div className="absolute bottom-0 right-[-10%] w-[500px] h-[500px] bg-emerald-500 opacity-[0.05] blur-[100px] pointer-events-none rounded-full" />
+    <div className="page">
 
-      <div className="text-center mb-14 relative z-10 pt-4 md:pt-8">
-        <span className="inline-flex items-center gap-2 px-4 py-1.5 mb-10 text-xs font-bold tracking-widest text-[#a5b4fc] uppercase bg-[#4f46e5]/10 border border-[#6366f1]/20 rounded-full shadow-[0_0_20px_rgba(99,102,241,0.2)] backdrop-blur-md">
-          <Zap size={14} className="text-[#818cf8]" /> V1.0 Beta
+      {/* Background orbs */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[600px] bg-[#6366f1] opacity-[0.06] blur-[140px] pointer-events-none rounded-full" />
+      <div className="absolute bottom-10 right-[-5%] w-[500px] h-[500px] bg-emerald-500 opacity-[0.05] blur-[110px] pointer-events-none rounded-full" />
+
+      {/* ── Header ── */}
+      <div className="text-center mb-16 relative z-10 pt-20">
+        <span className="inline-flex items-center gap-2 px-4 py-1.5 mb-8 text-xs font-bold tracking-widest text-[#a5b4fc] uppercase bg-[#4f46e5]/10 border border-[#6366f1]/20 rounded-full shadow-[0_0_20px_rgba(99,102,241,0.15)] backdrop-blur-md">
+          <Zap size={13} className="text-[#818cf8]" /> V1.0 Beta
         </span>
-        <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-white via-[#f3f4f6] to-[#9ca3af] mb-10 tracking-tighter drop-shadow-sm">
+        <h1 className="text-1xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-white via-[#f3f4f6] to-[#9ca3af] mb-6 tracking-tighter">
           Acerca del Proyecto
         </h1>
-        <p className="text-lg md:text-xl text-[#9ca3af] max-w-2xl mx-auto font-light leading-[1.7]">
-          Superando barreras de comunicación a través de inteligencia artificial de <span className="text-white font-medium">próxima generación</span>.
+        <p className="text-lg text-[#9ca3af] max-w-2xl mx-auto font-light leading-relaxed">
+          Superando barreras de comunicación a través de inteligencia artificial de{' '}
+          <span className="text-white font-medium">próxima generación</span>.
         </p>
       </div>
 
-      <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-8 items-start relative z-10 px-4 lg:px-0">
-        
-        {/* Misión Card */}
-        <div className="group relative rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent p-[1px] overflow-hidden transition-all duration-500 hover:shadow-[0_0_40px_rgba(99,102,241,0.15)] hover:-translate-y-1">
+      {/* ── Misión card ── */}
+      <div className="w-full max-w-3xl relative z-10 mb-20">
+        <div className="group relative rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent p-[1px] overflow-hidden transition-all duration-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.12)] hover:-translate-y-1">
           <div className="absolute inset-0 bg-gradient-to-br from-[#6366f1]/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
           <div className="h-full w-full bg-[#050914]/90 backdrop-blur-3xl rounded-[23px] p-10 border border-white/[0.02]">
-            <div className="flex flex-col">
-              <div className="flex items-center gap-5 mb-5">
-                <div className="p-4 bg-[#6366f1]/15 rounded-[1.25rem] flex-shrink-0 border border-[#6366f1]/20 shadow-[inset_0_1px_4px_rgba(255,255,255,0.1)]">
-                  <Target size={28} className="text-[#818cf8]" strokeWidth={2} />
-                </div>
-                <h2 className="text-3xl font-bold text-white tracking-tight">Nuestra Misión</h2>
+            <div className="flex items-center gap-5 mb-5">
+              <div className="p-4 bg-[#6366f1]/15 rounded-[1.25rem] flex-shrink-0 border border-[#6366f1]/20 shadow-[inset_0_1px_4px_rgba(255,255,255,0.1)]">
+                <Target size={26} className="text-[#818cf8]" strokeWidth={2} />
               </div>
-              <div className="w-full h-[1px] bg-gradient-to-r from-[#6366f1]/40 via-[#6366f1]/10 to-transparent mb-7" />
+              <h2 className="text-3xl font-bold text-white tracking-tight">Nuestra Misión</h2>
             </div>
-            <p className="text-[#d1d5db] leading-[1.8] text-base mb-8 font-light">
-              "Manos que Hablan" nace como un esfuerzo tecnológico y social para crear un puente visual e interactivo entre la comunidad sorda y oyente de habla hispana. 
+            <div className="w-full h-px bg-gradient-to-r from-[#6366f1]/40 via-[#6366f1]/10 to-transparent mb-7" />
+            <p className="text-[#d1d5db] leading-[1.85] text-base mb-8 font-light">
+              "Manos que Hablan" nace como un esfuerzo tecnológico y social para crear un puente
+              visual e interactivo entre la comunidad sorda y oyente de habla hispana. Usamos redes
+              neuronales LSTM entrenadas con datos reales de LSC para traducir señas en tiempo real
+              directamente desde la cámara.
             </p>
-            <div className="flex items-center gap-3 text-sm font-semibold tracking-wide text-[#a5b4fc] bg-[#6366f1]/10 px-4 py-2.5 rounded-xl w-fit">
-               <BrainCircuit size={18} className="text-[#818cf8]"/> Impulsado por Redes Neuronales Profundas
+            <div className="flex items-center gap-3 text-sm font-semibold tracking-wide text-[#a5b4fc] bg-[#6366f1]/10 px-4 py-2.5 rounded-xl w-fit border border-[#6366f1]/15">
+              <BrainCircuit size={17} className="text-[#818cf8]" /> Impulsado por Redes Neuronales Profundas (LSTM)
             </div>
-          </div>
-        </div>
-
-        {/* Equipo Card */}
-        <div className="group relative rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent p-[1px] overflow-hidden transition-all duration-500 hover:shadow-[0_0_40px_rgba(52,211,153,0.1)] hover:-translate-y-1">
-          <div className="absolute inset-0 bg-gradient-to-bl from-[#34d399]/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-          <div className="h-full w-full bg-[#050914]/90 backdrop-blur-3xl rounded-[23px] p-10 border border-white/[0.02]">
-             <div className="flex flex-col">
-               <div className="flex items-center gap-5 mb-5">
-                 <div className="p-4 bg-[#34d399]/15 rounded-[1.25rem] flex-shrink-0 border border-[#34d399]/20 shadow-[inset_0_1px_4px_rgba(255,255,255,0.1)]">
-                   <Users size={28} className="text-[#34d399]" strokeWidth={2} />
-                 </div>
-                 <h2 className="text-3xl font-bold text-white tracking-tight">El Equipo</h2>
-               </div>
-               <div className="w-full h-[1px] bg-gradient-to-r from-[#34d399]/40 via-[#34d399]/10 to-transparent mb-7" />
-             </div>
-             
-             <div className="flex flex-col">
-                {['Juan Camilo Neuta', 'Cristian Tafur', 'Santiago Tovar'].map((name, i) => (
-                  <div key={name} className="flex flex-col py-4 border-b border-white/10 border-l-[4px] border-[#34d399]/30 pl-6 transition-all hover:border-[#34d399] hover:pl-8 cursor-default relative last:border-b-0">
-                    <span className="text-white font-semibold text-lg tracking-wide">{name}</span>
-                    <span className="text-xs text-[#9ca3af] uppercase tracking-[0.2em] mt-2 font-bold">Desarrollador Fullstack</span>
-                  </div>
-                ))}
-             </div>
           </div>
         </div>
       </div>
+
+      {/* ── Team section ── */}
+      <div className="w-full max-w-5xl relative z-10">
+        {/* Section header */}
+        <div className="text-center mb-12">
+          <p className="text-xs font-bold tracking-[0.2em] text-[#6366f1] uppercase mb-3">El equipo</p>
+          <h2 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight mb-4">
+            Somos un equipo de
+            <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#a5b4fc] to-[#34d399]">
+              desarrolladores apasionados
+            </span>
+          </h2>
+          <p className="text-[#6b7280] max-w-lg mx-auto text-base">
+            Estudiantes de ingeniería comprometidos con la accesibilidad y la tecnología de impacto social.
+          </p>
+        </div>
+
+        {/* Cards with scale effect */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          {TEAM.map(({ name, role, bio, initials, from, to, shadow }) => (
+            <div
+              key={name}
+              className="group cursor-default"
+              style={{ transition: 'transform 0.35s cubic-bezier(0.34,1.56,0.64,1)' }}
+              onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.06)')}
+              onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+            >
+              <div
+                className="relative h-full rounded-2xl border border-white/[0.07] bg-[#0b0f1e]/80 backdrop-blur-xl p-8 flex flex-col items-center text-center overflow-hidden"
+                style={{
+                  boxShadow: `0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)`,
+                  transition: 'box-shadow 0.35s ease',
+                }}
+                onMouseEnter={e =>
+                  (e.currentTarget.style.boxShadow = `0 8px 48px ${shadow}, 0 0 0 1px rgba(255,255,255,0.08)`)
+                }
+                onMouseLeave={e =>
+                  (e.currentTarget.style.boxShadow = `0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)`)
+                }
+              >
+                {/* Glow blob */}
+                <div
+                  className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-24 opacity-0 group-hover:opacity-100 blur-3xl pointer-events-none transition-opacity duration-500"
+                  style={{ background: `radial-gradient(ellipse, ${from}55, transparent 70%)` }}
+                />
+
+                {/* Avatar */}
+                <div
+                  className="w-24 h-24 rounded-full flex items-center justify-center mb-5 relative shadow-2xl"
+                  style={{
+                    background: `linear-gradient(135deg, ${from}, ${to})`,
+                    boxShadow: `0 0 32px ${shadow}`,
+                  }}
+                >
+                  <span className="text-white font-black text-2xl select-none tracking-wide">
+                    {initials}
+                  </span>
+                  {/* Ring */}
+                  <div
+                    className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                    style={{
+                      background: `linear-gradient(135deg, ${from}44, ${to}44)`,
+                      boxShadow: `0 0 0 4px ${from}33`,
+                    }}
+                  />
+                </div>
+
+                {/* Info */}
+                <h3 className="text-white font-bold text-lg tracking-tight mb-1">{name}</h3>
+                <p
+                  className="text-xs font-bold tracking-[0.15em] uppercase mb-4"
+                  style={{ color: from }}
+                >
+                  {role}
+                </p>
+                <p className="text-[#6b7280] text-sm leading-relaxed">{bio}</p>
+
+                {/* Social icons placeholder */}
+                <div className="flex items-center gap-3 mt-6 opacity-30 group-hover:opacity-70 transition-opacity duration-300">
+                  <Code2 size={16} className="text-white" />
+                  <Globe size={16} className="text-white" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Footer note ── */}
+      <p className="relative z-10 mt-20 text-sm text-[#374151] text-center">
+        Proyecto Ingenieria de Software II · Ingenieria de Software · 2026 · Fundación Escuela Tecnologica de Neiva "Jesús Oviedo Perez"
+      </p>
     </div>
   );
 }

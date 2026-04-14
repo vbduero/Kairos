@@ -1,7 +1,10 @@
 # ============================================================
-#  Servicio MediaPipe — Detección de keypoints de las manos
-#  Soporta detección de 2 manos (126 keypoints = 2 × 21 × 3)
-#  Compatible con Windows (mp.solutions) y Linux (Tasks API)
+#  Servicio MediaPipe Holistic
+#  Detecta en un solo pase:
+#    - 2 manos       → 126 keypoints (21 × 3 × 2)
+#    - 12 puntos cara → 36 keypoints  (expresión facial LSC)
+#    - 2 hombros     →  6 keypoints   (postura)
+#  Total: 168 keypoints por frame
 # ============================================================
 
 import cv2
@@ -12,126 +15,110 @@ import sys
 
 
 class MediaPipeService:
-    NUM_KEYPOINTS_PER_HAND = 63
-    NUM_KEYPOINTS_TOTAL = 126
+    NUM_KEYPOINTS_PER_HAND = 63    # 21 × 3
+    KP_FACE                = 36    # 12 puntos × 3
+    KP_POSE                = 6     # 2 hombros × 3
+    NUM_KEYPOINTS_TOTAL    = 168   # total
 
-    def __init__(self, min_detection_confidence=0.80, min_tracking_confidence=0.80):
-        self.es_windows = sys.platform == "win32"
+    # Índices de Face Mesh a extraer (12 puntos de expresión facial)
+    FACE_INDICES = [61, 291, 13, 14, 33, 133, 362, 263, 70, 300, 4, 152]
+
+    # Índices de Pose a extraer (hombros)
+    POSE_INDICES = [11, 12]
+
+    def __init__(self, min_detection_confidence: float = 0.70,
+                 min_tracking_confidence: float = 0.70):
         self._det_conf = min_detection_confidence
         self._trk_conf = min_tracking_confidence
-        if self.es_windows:
-            self._init_windows()
-        else:
-            self._init_linux()
+        self._init_holistic()
 
-    def _init_windows(self):
+    def _init_holistic(self):
         import mediapipe as mp
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
+        self._mp = mp
+        self._holistic = mp.solutions.holistic.Holistic(
             static_image_mode=False,
-            max_num_hands=2,
-            model_complexity=1,          # más rápido (menor latencia por frame)
+            model_complexity=0,       # 0=rápido (~30-50ms/frame); 1 consume >100ms en CPUs lentas → cooldown se alarga
+            smooth_landmarks=True,    # suaviza transiciones entre frames
+            refine_face_landmarks=False,
+            enable_segmentation=False,
+            smooth_segmentation=False,
             min_detection_confidence=self._det_conf,
             min_tracking_confidence=self._trk_conf,
         )
-        print("✅ MediaPipe inicializado en modo Windows (2 manos)")
-
-    def _init_linux(self):
-        import mediapipe as mp
-        from mediapipe.tasks import python as mp_python
-        from mediapipe.tasks.python import vision as mp_vision
-        import urllib.request
-        import os
-
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        ruta_modelo = os.path.join(base_dir, "models", "hand_landmarker.task")
-        os.makedirs(os.path.dirname(ruta_modelo), exist_ok=True)
-        if not os.path.exists(ruta_modelo):
-            print("📥 Descargando modelo de MediaPipe...")
-            url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
-            urllib.request.urlretrieve(url, ruta_modelo)
-            print("✅ Modelo descargado")
-
-        base_options = mp_python.BaseOptions(model_asset_path=ruta_modelo)
-        options = mp_vision.HandLandmarkerOptions(
-            base_options=base_options,
-            running_mode=mp_vision.RunningMode.IMAGE,
-            num_hands=2,
-            min_hand_detection_confidence=self._det_conf,
-            min_hand_presence_confidence=self._trk_conf,
-            min_tracking_confidence=self._trk_conf,
+        print(
+            f"✅ MediaPipe Holistic inicializado "
+            f"(manos + rostro + hombros → {self.NUM_KEYPOINTS_TOTAL} kp/frame)"
         )
-        self.detector = mp_vision.HandLandmarker.create_from_options(options)
-        self.mp = mp
-        print("✅ MediaPipe inicializado en modo Linux (2 manos)")
 
-    def _extraer_keypoints_mano(self, landmarks) -> list:
-        keypoints = []
-        for landmark in landmarks:
-            keypoints.append(round(float(landmark.x), 6))
-            keypoints.append(round(float(landmark.y), 6))
-            keypoints.append(round(float(landmark.z), 6))
-        return keypoints
+    # ── Extracción de puntos ──────────────────────────────────────
+    def _landmarks_a_kp(self, landmarks_obj, indices: list | None = None) -> list:
+        """Extrae x,y,z de los landmarks indicados (o todos si indices=None)."""
+        if indices is not None:
+            puntos = [landmarks_obj.landmark[i] for i in indices]
+        else:
+            puntos = landmarks_obj.landmark
+        kp = []
+        for p in puntos:
+            kp.extend([round(float(p.x), 6),
+                       round(float(p.y), 6),
+                       round(float(p.z), 6)])
+        return kp
 
-    def _ordenar_manos_por_x(self, manos: list) -> list:
-        if len(manos) <= 1:
-            return manos
-        return sorted(manos, key=lambda kp: kp[0])
-
+    # ── Procesamiento de frame ────────────────────────────────────
     def procesar_frame(self, imagen_bytes: bytes) -> Optional[list]:
+        """
+        Retorna 168 floats si al menos una mano está presente, None si no.
+        Formato: [mano1 0:63][mano2 63:126][cara 126:162][hombros 162:168]
+        """
         inicio = time.time()
-        array = np.frombuffer(imagen_bytes, dtype=np.uint8)
+
+        array  = np.frombuffer(imagen_bytes, dtype=np.uint8)
         imagen = cv2.imdecode(array, cv2.IMREAD_COLOR)
         if imagen is None:
             return None
 
         imagen_rgb = cv2.cvtColor(imagen, cv2.COLOR_BGR2RGB)
+        resultado  = self._holistic.process(imagen_rgb)
 
-        if self.es_windows:
-            manos_keypoints = self._procesar_windows(imagen_rgb)
+        # Sin ninguna mano → sin dato
+        hay_mano = (resultado.left_hand_landmarks is not None or
+                    resultado.right_hand_landmarks is not None)
+        if not hay_mano:
+            return None
+
+        mano_ceros = [0.0] * self.NUM_KEYPOINTS_PER_HAND
+        cara_ceros = [0.0] * self.KP_FACE
+        pose_ceros = [0.0] * self.KP_POSE
+
+        # ── Manos: ordenadas por x (consistencia con datos anteriores) ──
+        manos_raw = []
+        for lm in (resultado.right_hand_landmarks, resultado.left_hand_landmarks):
+            if lm is not None:
+                manos_raw.append(self._landmarks_a_kp(lm))
+
+        manos_raw = sorted(manos_raw, key=lambda kp: kp[0])  # menor x primero
+        kp_mano1  = manos_raw[0]
+        kp_mano2  = manos_raw[1] if len(manos_raw) > 1 else mano_ceros
+
+        # ── Cara: 12 puntos clave ────────────────────────────────────
+        if resultado.face_landmarks:
+            kp_cara = self._landmarks_a_kp(resultado.face_landmarks, self.FACE_INDICES)
         else:
-            manos_keypoints = self._procesar_linux(imagen_rgb)
+            kp_cara = cara_ceros
+
+        # ── Hombros desde Pose ───────────────────────────────────────
+        if resultado.pose_landmarks:
+            kp_pose = self._landmarks_a_kp(resultado.pose_landmarks, self.POSE_INDICES)
+        else:
+            kp_pose = pose_ceros
+
+        keypoints = kp_mano1 + kp_mano2 + kp_cara + kp_pose  # 63+63+36+6=168
 
         tiempo_ms = (time.time() - inicio) * 1000
-        if tiempo_ms > 100:
-            print(f"⚠️  Procesamiento lento: {tiempo_ms:.1f}ms")
+        if tiempo_ms > 120:
+            print(f"⚠️  Holistic lento: {tiempo_ms:.0f} ms")
 
-        if not manos_keypoints:
-            return None
-
-        manos_keypoints = self._ordenar_manos_por_x(manos_keypoints)
-        mano_ceros = [0.0] * self.NUM_KEYPOINTS_PER_HAND
-
-        if len(manos_keypoints) >= 2:
-            resultado = manos_keypoints[0] + manos_keypoints[1]
-        else:
-            resultado = manos_keypoints[0] + mano_ceros
-
-        return resultado
-
-    def _procesar_windows(self, imagen_rgb) -> Optional[list]:
-        resultado = self.hands.process(imagen_rgb)
-        if not resultado.multi_hand_landmarks:
-            return None
-        manos = []
-        for mano in resultado.multi_hand_landmarks:
-            kp = self._extraer_keypoints_mano(mano.landmark)
-            manos.append(kp)
-        return manos
-
-    def _procesar_linux(self, imagen_rgb) -> Optional[list]:
-        mp_image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=imagen_rgb)
-        resultado = self.detector.detect(mp_image)
-        if not resultado.hand_landmarks:
-            return None
-        manos = []
-        for mano_landmarks in resultado.hand_landmarks:
-            kp = self._extraer_keypoints_mano(mano_landmarks)
-            manos.append(kp)
-        return manos
+        return keypoints
 
     def cerrar(self):
-        if self.es_windows:
-            self.hands.close()
-        else:
-            self.detector.close()
+        self._holistic.close()

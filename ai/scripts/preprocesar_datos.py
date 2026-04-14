@@ -1,5 +1,7 @@
 # ============================================================
 #  Preprocesamiento de Secuencias LSC
+#  Acepta secuencias antiguas (126 kp) y nuevas (168 kp).
+#  Auto-detecta el formato dominante y normaliza en consecuencia.
 #  Ejecutar desde la raíz del proyecto:
 #    python ai/scripts/preprocesar_datos.py
 # ============================================================
@@ -10,12 +12,28 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from utils.keypoint_utils import normalize_sequence, SEQUENCE_LEN, KP_TOTAL
+from utils.keypoint_utils import (
+    normalize_sequence, normalize_hand,
+    SEQUENCE_LEN, KP_TOTAL, KP_PER_HAND
+)
 
-SEQUENCES_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
-AUGMENTED_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences_augmented')
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../datasets')
+SEQUENCES_DIR  = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
+AUGMENTED_DIR  = os.path.join(os.path.dirname(__file__), '../datasets/sequences_augmented')
+OUTPUT_DIR     = os.path.join(os.path.dirname(__file__), '../datasets')
 TRAIN_TEST_SPLIT = 0.8
+
+KP_LEGACY = 126   # formato anterior (solo manos)
+
+
+def normalize_legacy(seq: np.ndarray) -> np.ndarray:
+    """Normaliza secuencias antiguas de 126 kp (solo manos)."""
+    result = np.zeros_like(seq)
+    for i in range(seq.shape[0]):
+        kp = seq[i]
+        h1 = normalize_hand(kp[:KP_PER_HAND].reshape(21, 3))
+        h2 = normalize_hand(kp[KP_PER_HAND:].reshape(21, 3))
+        result[i] = np.concatenate([h1.flatten(), h2.flatten()])
+    return result
 
 
 def preprocesar():
@@ -26,14 +44,12 @@ def preprocesar():
         print(f"✅ Usando secuencias aumentadas: {AUGMENTED_DIR}")
     elif os.path.exists(SEQUENCES_DIR):
         data_dir = SEQUENCES_DIR
-        print(f"ℹ️ Usando secuencias originales: {SEQUENCES_DIR}")
+        print(f"ℹ️  Usando secuencias originales: {SEQUENCES_DIR}")
     else:
         print("❌ Error: No se encontraron secuencias.")
         print("   Primero ejecuta: python ai/scripts/recolectar_datos.py")
         return
 
-    X_all = []
-    y_all = []
     clases = sorted([
         d for d in os.listdir(data_dir)
         if os.path.isdir(os.path.join(data_dir, d))
@@ -44,28 +60,66 @@ def preprocesar():
         print("❌ No se encontraron clases en el directorio.")
         return
 
+    # ── Contar formatos disponibles (informativo) ───────────────
+    formatos = {KP_LEGACY: 0, KP_TOTAL: 0}
+    for sena in clases:
+        dir_sena = os.path.join(data_dir, sena)
+        for archivo in os.listdir(dir_sena):
+            if not archivo.endswith('.npy'):
+                continue
+            seq = np.load(os.path.join(dir_sena, archivo))
+            if seq.ndim == 2 and seq.shape[1] in formatos:
+                formatos[seq.shape[1]] += 1
+
+    if formatos[KP_LEGACY] == 0 and formatos[KP_TOTAL] == 0:
+        print("❌ No se encontraron secuencias válidas (se esperaba 126 o 168 kp/frame).")
+        return
+
+    print(f"✅ Formato unificado: HOLISTIC {KP_TOTAL} kp/frame")
+    print(f"   Legacy {KP_LEGACY} kp (manos): {formatos[KP_LEGACY]} seqs  →  se rellenan con ceros a {KP_TOTAL}")
+    print(f"   Holistic {KP_TOTAL} kp (manos+cara+hombros): {formatos[KP_TOTAL]} seqs")
+
     label_map = {label: i for i, label in enumerate(clases)}
+    X_all = []
+    y_all = []
 
     print(f"\n📊 Distribución de secuencias:")
     for sena in clases:
         dir_sena = os.path.join(data_dir, sena)
         archivos = [f for f in os.listdir(dir_sena) if f.endswith('.npy')]
+        cargadas = 0
 
         for archivo in archivos:
             seq = np.load(os.path.join(dir_sena, archivo))
 
-            # Aceptar secuencias de cualquier longitud >= SEQUENCE_LEN
-            # y subsamplear uniformemente hasta SEQUENCE_LEN frames
-            if seq.ndim == 2 and seq.shape[1] == KP_TOTAL and seq.shape[0] >= SEQUENCE_LEN:
-                if seq.shape[0] > SEQUENCE_LEN:
-                    indices = np.linspace(0, seq.shape[0] - 1, SEQUENCE_LEN, dtype=int)
-                    seq = seq[indices]
-                if data_dir == SEQUENCES_DIR:
-                    seq = normalize_sequence(seq)
-                X_all.append(seq)
-                y_all.append(label_map[sena])
+            if seq.ndim != 2 or seq.shape[1] not in (KP_LEGACY, KP_TOTAL):
+                continue
+            if seq.shape[0] < SEQUENCE_LEN:
+                continue
 
-        print(f"   {sena:<15} {len(archivos):>8} secuencias")
+            # Submuestrear si hay más frames de los necesarios
+            if seq.shape[0] > SEQUENCE_LEN:
+                indices = np.linspace(0, seq.shape[0] - 1, SEQUENCE_LEN, dtype=int)
+                seq = seq[indices]
+
+            # Normalizar (solo en secuencias originales, no aumentadas)
+            if data_dir == SEQUENCES_DIR:
+                if seq.shape[1] == KP_LEGACY:
+                    seq = normalize_legacy(seq)
+                else:
+                    seq = normalize_sequence(seq)
+
+            # Unificar formato: pad 126 kp → 168 kp con ceros en cara/hombros
+            if seq.shape[1] == KP_LEGACY:
+                padded = np.zeros((seq.shape[0], KP_TOTAL), dtype=np.float32)
+                padded[:, :KP_LEGACY] = seq
+                seq = padded
+
+            X_all.append(seq)
+            y_all.append(label_map[sena])
+            cargadas += 1
+
+        print(f"   {sena:<15} {cargadas:>8} secuencias")
 
     if not X_all:
         print("❌ No se cargaron secuencias válidas.")
@@ -85,9 +139,9 @@ def preprocesar():
     y_train, y_test = y[:split_idx], y[split_idx:]
 
     np.save(os.path.join(OUTPUT_DIR, 'X_train.npy'), X_train)
-    np.save(os.path.join(OUTPUT_DIR, 'X_test.npy'), X_test)
+    np.save(os.path.join(OUTPUT_DIR, 'X_test.npy'),  X_test)
     np.save(os.path.join(OUTPUT_DIR, 'y_train.npy'), y_train)
-    np.save(os.path.join(OUTPUT_DIR, 'y_test.npy'), y_test)
+    np.save(os.path.join(OUTPUT_DIR, 'y_test.npy'),  y_test)
 
     with open(os.path.join(OUTPUT_DIR, 'label_encoder.json'), 'w') as f:
         json.dump(label_map, f, indent=4)
@@ -96,6 +150,7 @@ def preprocesar():
     print(f"   X_train: {X_train.shape}")
     print(f"   X_test:  {X_test.shape}")
     print(f"   Clases:  {len(clases)}")
+    print(f"   Formato: Holistic {KP_TOTAL} kp (legacy padded)")
     print(f"\n🎯 Siguiente paso: python ai/scripts/entrenar_modelo.py")
 
 

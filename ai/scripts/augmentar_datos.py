@@ -10,11 +10,12 @@ import os
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from utils.keypoint_utils import normalize_sequence, augment_sequence, SEQUENCE_LEN, KP_TOTAL
+from utils.keypoint_utils import normalize_sequence, normalize_hand, augment_sequence, SEQUENCE_LEN, KP_TOTAL, KP_PER_HAND
 
 SEQUENCES_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
 AUGMENTED_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences_augmented')
 AUGMENTED_PER_SAMPLE = 5
+KP_LEGACY = 126  # formato anterior (solo manos)
 
 
 def augmentar():
@@ -50,13 +51,25 @@ def augmentar():
 
         for archivo in archivos:
             seq = np.load(os.path.join(dir_sena, archivo))
-            if seq.ndim != 2 or seq.shape[1] != KP_TOTAL or seq.shape[0] < SEQUENCE_LEN:
+            if seq.ndim != 2 or seq.shape[1] not in (KP_LEGACY, KP_TOTAL):
+                continue
+            if seq.shape[0] < SEQUENCE_LEN:
                 continue
             # Subsamplear uniformemente si la secuencia es más larga que SEQUENCE_LEN
             if seq.shape[0] > SEQUENCE_LEN:
                 indices = np.linspace(0, seq.shape[0] - 1, SEQUENCE_LEN, dtype=int)
                 seq = seq[indices]
 
+            # Normalizar según formato y unificar a 168 kp
+            if seq.shape[1] == KP_LEGACY:
+                # Solo manos: normalizar y rellenar cara/hombros con ceros
+                result = np.zeros((seq.shape[0], KP_TOTAL), dtype=np.float32)
+                for fi in range(seq.shape[0]):
+                    kp = seq[fi]
+                    h1 = normalize_hand(kp[:KP_PER_HAND].reshape(21, 3))
+                    h2 = normalize_hand(kp[KP_PER_HAND:].reshape(21, 3))
+                    result[fi, :KP_LEGACY] = np.concatenate([h1.flatten(), h2.flatten()])
+                seq = result
             seq_norm = normalize_sequence(seq)
             np.save(os.path.join(dir_aug, f"orig_{archivo}"), seq_norm)
             n_generado += 1

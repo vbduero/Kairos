@@ -209,34 +209,48 @@ class SignClassifierService:
         return deque(maxlen=self.sequence_length)
 
     def add_frame_to_buffer(self, buffer: deque, keypoints: list) -> bool:
-        kp_norm = normalize_two_hands(keypoints) if len(keypoints) == KP_TOTAL else keypoints
+        from utils.keypoint_utils import normalize_two_hands, normalize_holistic
+
+        # Compatibilidad: si el modelo fue entrenado con menos kp de los que
+        # ahora llegan (ej. modelo legacy 126 kp vs Holistic 168 kp),
+        # truncamos al tamaño esperado antes de normalizar.
+        kp = keypoints[:self.kp_per_frame] if len(keypoints) > self.kp_per_frame else keypoints
+
+        if len(kp) == KP_TOTAL:          # 168 → modelo nuevo
+            kp_norm = normalize_holistic(kp)
+        elif len(kp) == 126:             # 126 → modelo legacy (solo manos)
+            kp_norm = normalize_two_hands(kp)
+        else:
+            kp_norm = kp
+
         buffer.append(kp_norm)
         return len(buffer) >= self.sequence_length
 
     # ── Predicción desde buffer completo ─────────────────────────
-    def predict_from_buffer(self, buffer: deque) -> Tuple[Optional[str], float, float]:
-        """Retorna (sign, confidence, entropy_normalizada)."""
+    def predict_from_buffer(self, buffer: deque) -> Tuple[Optional[str], float, float, float]:
+        """Retorna (sign, confidence, entropy_normalizada, margin)."""
         if not self.labels or len(buffer) < self.sequence_length:
-            return None, 0.0, 1.0
+            return None, 0.0, 1.0, 0.0
 
-        sequence = np.array(list(buffer), dtype=np.float32)  # (5, 126)
-        input_data = np.expand_dims(sequence, axis=0)         # (1, 5, 126)
+        sequence   = np.array(list(buffer), dtype=np.float32)
+        input_data = np.expand_dims(sequence, axis=0)
 
         return self._run_inference(input_data)
 
     # ── Inferencia ────────────────────────────────────────────────
-    def _run_inference(self, input_data: np.ndarray) -> Tuple[Optional[str], float, float]:
+    def _run_inference(self, input_data: np.ndarray) -> Tuple[Optional[str], float, float, float]:
         """
-        Retorna (sign, confidence, entropy_normalizada).
+        Retorna (sign, confidence, entropy_normalizada, margin).
 
         entropy_normalizada ∈ [0, 1]:
           ≈ 0  → modelo muy seguro (distribución concentrada en una clase)
           ≈ 1  → modelo completamente inseguro (distribución uniforme)
 
-        Se usa para rechazar señas desconocidas: aunque la clase ganadora
-        tenga una confianza aceptable, si la entropía es alta significa que
-        el modelo está repartiendo probabilidad entre varias clases y no
-        ha reconocido nada con claridad.
+        margin = top1_conf - top2_conf:
+          alto  → el ganador gana con claridad
+          bajo  → dos clases están muy empatadas (predicción ambigua)
+
+        Ambas métricas se usan para rechazar señas desconocidas o ambiguas.
         """
         probs = None
 
@@ -252,7 +266,7 @@ class SignClassifierService:
             probs = self.numpy_engine.predict(input_data)[0]
 
         if probs is None:
-            return None, 0.0, 1.0
+            return None, 0.0, 1.0, 0.0
 
         idx = int(np.argmax(probs))
         confidence = float(probs[idx])
@@ -263,7 +277,11 @@ class SignClassifierService:
             -np.sum(probs * np.log2(probs + 1e-10)) / np.log2(n)
         )
 
-        return self.labels.get(idx, "Desconocido"), confidence, entropy
+        # Margen: diferencia entre top-1 y top-2 (certeza relativa del ganador)
+        sorted_probs = np.sort(probs)[::-1]
+        margin = float(sorted_probs[0] - sorted_probs[1]) if len(sorted_probs) > 1 else float(sorted_probs[0])
+
+        return self.labels.get(idx, "Desconocido"), confidence, entropy, margin
 
     # ── Predicción frame único (legacy) ──────────────────────────
     def predict(self, keypoints: list) -> Tuple[Optional[str], float]:
@@ -281,5 +299,5 @@ class SignClassifierService:
             expected = self.input_details[0]['shape'][-1]
             if input_data.shape[-1] > expected:
                 input_data = input_data[:, :expected]
-        sign, confidence, _ = self._run_inference(input_data)
+        sign, confidence, _, _margin = self._run_inference(input_data)
         return sign, confidence

@@ -8,8 +8,7 @@ import { useCamera } from '../../hooks/useCamera';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { SignDisplay } from '../ui/SignDisplay';
 import { ConfidenceBar } from '../ui/ConfidenceBar';
-import { SignHistory } from '../ui/SignHistory';
-import type { SignEntry } from '../ui/SignHistory';
+import { useTranslatorStore } from '../../store/translatorStore';
 
 export const CameraCapture: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -17,41 +16,16 @@ export const CameraCapture: React.FC = () => {
   const { isConnected, response, startSendingFrames, stopSendingFrames } = useWebSocket();
   const [isCapturing, setIsCapturing]   = useState(false);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.50);
-  const [history, setHistory]           = useState<SignEntry[]>([]);
   const [lastValidPrediction, setLastValidPrediction] = useState<{ sign: string; confidence: number } | null>(null);
 
-  const lastSignRef      = useRef<string | null>(null);
-  // Timer que limpia la seña 1 s después de la última predicción.
-  // Con COOLDOWN_FRAMES=16 en el backend, la próxima predicción del mismo
-  // signo llega a los 1.15 s, por lo que este timer siempre se dispara primero.
+  const updateTranslator = useTranslatorStore(s => s.update);
+  // Auto-clear: se resetea con cada nueva predicción válida.
+  // Dispara 1.5 s después de la ÚLTIMA predicción recibida → limpia independientemente
+  // de hand_detected (resuelve el bug de 15-20 s con smooth_landmarks=True).
   const autoClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Timer de debounce para la pérdida de mano: evita el parpadeo cuando
-  // MediaPipe pierde la detección brevemente (1-2 frames) y la recupera.
+  // Debounce de pérdida de mano: limpia inmediatamente si la mano desaparece
+  // de forma estable (tolerando drops breves de 1-2 frames).
   const handLostTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Auto-clear: limpia la seña 1 s después de que se MUESTRA por primera vez ──
-  // Nota: el timer solo se (re)inicia cuando lastValidPrediction cambia a un
-  // objeto NUEVO (distinto signo). Para el mismo signo, setLastValidPrediction
-  // devuelve la referencia anterior → React no hace re-render → el timer no se
-  // resetea → se dispara en 1 s aunque el backend siga prediciendo el mismo signo.
-  useEffect(() => {
-  if (!lastValidPrediction) return;
-  if (autoClearTimerRef.current) clearTimeout(autoClearTimerRef.current);
-  
-  // Solo limpiar si la mano NO está presente
-  // Mientras la mano esté detectada, el backend sigue prediciendo
-  // y la seña se actualiza sola
-  autoClearTimerRef.current = setTimeout(() => {
-    // Solo limpiar si la mano ya no está detectada
-    if (!response?.hand_detected) {
-      setLastValidPrediction(null);
-    }
-  }, 1500);  // aumentar a 1.5s por seguridad
-
-  return () => {
-    if (autoClearTimerRef.current) clearTimeout(autoClearTimerRef.current);
-  };
-}, [lastValidPrediction, response?.hand_detected]);
 
   // Asignar el stream al elemento de video cuando esté disponible
   useEffect(() => {
@@ -76,7 +50,6 @@ export const CameraCapture: React.FC = () => {
       if (!handLostTimerRef.current) {
         handLostTimerRef.current = setTimeout(() => {
           // Mano perdida: reset completo del estado de display
-          lastSignRef.current = null;
           setLastValidPrediction(null);
           if (autoClearTimerRef.current) {
             clearTimeout(autoClearTimerRef.current);
@@ -98,24 +71,16 @@ export const CameraCapture: React.FC = () => {
     const confidence = response.confidence;
 
     if (sign && confidence >= confidenceThreshold) {
-      // Actualización funcional: si el signo es el MISMO que ya se muestra,
-      // se devuelve la referencia anterior → React no crea nuevo estado →
-      // el useEffect de auto-clear NO se vuelve a ejecutar → el timer no se
-      // resetea → se dispara en 1 s aunque el backend siga prediciendo el mismo signo.
-      // Si el signo ES DIFERENTE, crea objeto nuevo → timer se reinicia → 1 s extra.
-      setLastValidPrediction(prev => {
-        if (prev?.sign === sign) return prev;   // misma seña: timer intacto
-        return { sign, confidence };             // seña nueva: timer se reinicia
-      });
-
-      // Historial: agregar solo cuando la seña cambia
-      if (sign !== lastSignRef.current) {
-        lastSignRef.current = sign;
-        setHistory(prev => {
-          const nueva: SignEntry = { sign, confidence, timestamp: new Date() };
-          return [nueva, ...prev].slice(0, 5);
-        });
-      }
+      // Actualizar la seña y resetear el timer de auto-clear.
+      // Siempre creamos un objeto nuevo para que el timer se reinicie
+      // aunque sea el mismo signo (garantiza que se limpia 1.5 s tras la
+      // ÚLTIMA predicción recibida, no tras la primera).
+      setLastValidPrediction({ sign, confidence });
+      if (autoClearTimerRef.current) clearTimeout(autoClearTimerRef.current);
+      autoClearTimerRef.current = setTimeout(() => {
+        setLastValidPrediction(null);
+        autoClearTimerRef.current = null;
+      }, 1500);
     }
   }, [response, confidenceThreshold]);
 
@@ -126,6 +91,24 @@ export const CameraCapture: React.FC = () => {
     if (autoClearTimerRef.current)  clearTimeout(autoClearTimerRef.current);
     if (handLostTimerRef.current)   clearTimeout(handLostTimerRef.current);
   }, []);
+
+  // ── Sincronizar keypoints y estado de mano al translatorStore ──
+  useEffect(() => {
+    if (!response) return;
+    updateTranslator({
+      keypoints:    response.keypoints ?? [],
+      handDetected: response.hand_detected,
+      handsCount:   response.hands_count,
+    });
+  }, [response, updateTranslator]);
+
+  // ── Sincronizar seña validada al translatorStore ──
+  useEffect(() => {
+    updateTranslator({
+      predictedSign: lastValidPrediction?.sign ?? null,
+      confidence:    lastValidPrediction?.confidence ?? 0,
+    });
+  }, [lastValidPrediction, updateTranslator]);
 
   const handleToggle = async () => {
     if (!isCapturing) {
@@ -141,8 +124,9 @@ export const CameraCapture: React.FC = () => {
   const bufferProgress = response?.buffer_progress ?? 0;
 
   return (
-    <>
-      {/* Camera viewport */}
+    <div className="capture-layout">
+
+      {/* ── Izquierda: cámara ── */}
       <div className="camera-section">
         {error ? (
           <div className="camera-placeholder">
@@ -166,31 +150,54 @@ export const CameraCapture: React.FC = () => {
           <video ref={videoRef} autoPlay playsInline muted />
         )}
 
-        {/* WS Status */}
+        {/* Estado de conexión */}
         <div className="status-badge">
           <div className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
           <span style={{ color: isConnected ? '#86efac' : '#fca5a5' }}>
             {isConnected ? 'Conectado' : 'Desconectado'}
           </span>
         </div>
+
+        {/* Indicadores en cámara */}
+        {isCapturing && (
+          <div className="camera-chips">
+            <div className="info-chip">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="#10b981">
+                <circle cx="12" cy="12" r="10"/>
+              </svg>
+              <span className="val">20 fps</span>
+            </div>
+            {handsCount > 0 && (
+              <div className="info-chip">
+                {handsCount === 2 ? '🤲' : '🖐'} <span className="val">{handsCount}</span>
+              </div>
+            )}
+            {bufferProgress > 0 && bufferProgress < 1 && (
+              <div className="info-chip">
+                ⏳ <span className="val">{Math.round(bufferProgress * 100)}%</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Bottom panel */}
-      <div className="bottom-panel">
+      {/* ── Derecha: controles y resultado ── */}
+      <div className="side-panel">
 
-        {/* Controls */}
-        <div className="controls-row">
-          <button onClick={handleToggle} className={`btn-capture ${isCapturing ? 'stop' : 'start'}`}>
+        {/* Sección: control de captura */}
+        <div className="panel-section">
+          <p className="panel-section-label">Control</p>
+          <button onClick={handleToggle} className={`btn-capture ${isCapturing ? 'stop' : 'start'} full-width`}>
             {isCapturing ? (
               <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="6" width="12" height="12" rx="2"/>
                 </svg>
                 Detener captura
               </>
             ) : (
               <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                   <circle cx="12" cy="12" r="8"/>
                   <circle cx="12" cy="12" r="4" fill="white"/>
                 </svg>
@@ -198,47 +205,32 @@ export const CameraCapture: React.FC = () => {
               </>
             )}
           </button>
-
-          {isCapturing && (
-            <div className="info-chip">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="#10b981">
-                <circle cx="12" cy="12" r="10"/>
-              </svg>
-              Transmitiendo <span className="val">20 fps</span>
-            </div>
-          )}
-
-          {handsCount > 0 && (
-            <div className="info-chip">
-              {handsCount === 2 ? '🤲' : '🖐'} <span className="val">{handsCount} mano{handsCount > 1 ? 's' : ''}</span> detectada{handsCount > 1 ? 's' : ''}
-            </div>
-          )}
-
-          {isCapturing && bufferProgress > 0 && bufferProgress < 1 && (
-            <div className="info-chip">
-              ⏳ Buffer: <span className="val">{Math.round(bufferProgress * 100)}%</span>
-            </div>
-          )}
         </div>
 
-        {/* Seña detectada */}
-        <SignDisplay
-          sign={lastValidPrediction?.sign ?? null}
-          confidence={lastValidPrediction?.confidence ?? 0}
-          handDetected={response?.hand_detected ?? false}
-          confidenceThreshold={confidenceThreshold}
-        />
+        {/* Sección: seña detectada */}
+        <div className="panel-section">
+          <p className="panel-section-label">Seña detectada</p>
+          <SignDisplay
+            sign={lastValidPrediction?.sign ?? null}
+            confidence={lastValidPrediction?.confidence ?? 0}
+            handDetected={response?.hand_detected ?? false}
+            confidenceThreshold={confidenceThreshold}
+          />
+        </div>
 
-        {/* Barra de confianza */}
-        <ConfidenceBar
-          confidence={response?.confidence ?? 0}
-          handDetected={response?.hand_detected ?? false}
-        />
+        {/* Sección: confianza en tiempo real */}
+        <div className="panel-section">
+          <p className="panel-section-label">Confianza en tiempo real</p>
+          <ConfidenceBar
+            confidence={response?.confidence ?? 0}
+            handDetected={response?.hand_detected ?? false}
+          />
+        </div>
 
-        {/* Slider de umbral */}
-        <div className="threshold-section">
+        {/* Sección: umbral */}
+        <div className="panel-section">
           <div className="threshold-header">
-            <span className="threshold-label">Umbral mínimo de confianza</span>
+            <span className="panel-section-label">Umbral mínimo</span>
             <span className="threshold-value">{Math.round(confidenceThreshold * 100)}%</span>
           </div>
           <input
@@ -250,15 +242,12 @@ export const CameraCapture: React.FC = () => {
             className="threshold-slider"
           />
           <div className="threshold-hints">
-            <span>50% (más sensible)</span>
-            <span>95% (más estricto)</span>
+            <span>50% más sensible</span>
+            <span>95% más estricto</span>
           </div>
         </div>
 
-        {/* Historial */}
-        <SignHistory entries={history} />
-
       </div>
-    </>
+    </div>
   );
 };

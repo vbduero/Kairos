@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
 # ============================================================
-#  recolectar_senas.sh — Recolección de señas LSC (Linux/Mac)
-#  Uso: bash recolectar_senas.sh
+#  start_backend.sh — Arranca el servidor FastAPI (Linux/Mac)
+#  Uso: bash scripts/start_backend.sh
 # ============================================================
 
-# Ir a la raíz del proyecto
-cd "$(dirname "$0")" || exit 1
+# Ir a la raíz del proyecto desde cualquier ubicación
+cd "$(dirname "$0")/.." || exit 1
 
 PYTHON="backend/venv/bin/python"
-export PYTHONIOENCODING=utf-8
 
-if [ ! -f "$PYTHON" ]; then
+# Mostrar splash animado (mismo que Windows)
+if [ -f "$PYTHON" ]; then
+    "$PYTHON" scripts/splash.py backend
+fi
+
+cd backend || exit 1
+
+# Activar entorno virtual
+if [ ! -f "venv/bin/activate" ]; then
     echo ""
     echo "  [ERROR] No se encontró el entorno virtual en backend/venv/"
     echo "  Instala las dependencias primero:"
@@ -23,4 +30,5 @@ if [ ! -f "$PYTHON" ]; then
     exit 1
 fi
 
-"$PYTHON" ai/scripts/recolectar_datos.py
+source venv/bin/activate
+uvicorn app.main:app --reload

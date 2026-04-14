@@ -4,7 +4,12 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 /* ── Reset & Variables ── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+
+}
 
 :root {
   --bg-primary: #0a0e1a;
@@ -18,7 +23,7 @@
   --text-primary: #f9fafb;
   --text-secondary: #9ca3af;
   --text-muted: #4b5563;
-  --border: rgba(255,255,255,0.08);
+  --border: rgba(255, 255, 255, 0.08);
   --radius: 16px;
 }
 
@@ -37,23 +42,28 @@ body::before {
   position: fixed;
   inset: 0;
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,0.15), transparent),
-    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent),
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: auto, 40px 40px, 40px 40px;
   pointer-events: none;
   z-index: 0;
 }
 
-#root { position: relative; z-index: 1; }
+#root {
+  position: relative;
+  z-index: 1;
+}
 
 /* ── Page layout ── */
 .page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 100px 16px 60px;
+  padding: 88px 24px 56px;
+  overflow-x: hidden;
 }
 
 /* ── Header ── */
@@ -66,8 +76,8 @@ body::before {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(99,102,241,0.15);
-  border: 1px solid rgba(99,102,241,0.3);
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
   border-radius: 999px;
   padding: 4px 14px;
   font-size: 12px;
@@ -79,15 +89,23 @@ body::before {
 }
 
 .header-badge .dot {
-  width: 6px; height: 6px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #6366f1;
   animation: pulse-dot 2s infinite;
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .header h1 {
@@ -116,19 +134,20 @@ body::before {
   backdrop-filter: blur(20px);
   overflow: hidden;
   box-shadow:
-    0 0 0 1px rgba(255,255,255,0.05),
-    0 32px 80px rgba(0,0,0,0.5),
-    0 0 60px rgba(99,102,241,0.05);
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 32px 80px rgba(0, 0, 0, 0.5),
+    0 0 60px rgba(99, 102, 241, 0.05);
 }
 
-/* ── Translator two-column grid ── */
+/* ── Translator two-column grid (legacy, mantenido por si se reactiva) ── */
 .translator-grid {
   width: 100%;
   max-width: 1380px;
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: 4fr 2fr;
   gap: 20px;
   align-items: start;
+  padding-top: 50px;
 }
 
 @media (max-width: 1024px) {
@@ -136,6 +155,83 @@ body::before {
     grid-template-columns: 1fr;
     max-width: 900px;
   }
+}
+
+/* ── Translator single-column (centrado, sin avatar lateral) ── */
+.translator-single {
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Capture layout: cámara izquierda | panel derecho ── */
+.capture-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  min-height: 520px;
+}
+
+@media (max-width: 860px) {
+  .capture-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Camera section: rellena toda la altura del grid ── */
+.camera-section {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  min-height: 480px;
+}
+
+/* ── Chips superpuestos en la cámara (fps, manos, buffer) ── */
+.camera-chips {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Panel lateral derecho ── */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+/* ── Sección dentro del panel lateral ── */
+.panel-section {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-section:last-child {
+  border-bottom: none;
+}
+
+.panel-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+/* Botón de captura full-width en el panel */
+.btn-capture.full-width {
+  width: 100%;
+  justify-content: center;
 }
 
 /* ── Avatar section (right panel viewport) ── */
@@ -157,23 +253,14 @@ body::before {
   top: 16px;
   right: 16px;
   padding: 4px 10px;
-  background: rgba(99,102,241,0.2);
-  border: 1px solid rgba(99,102,241,0.3);
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.3);
   border-radius: 999px;
   font-size: 10px;
   font-weight: 700;
   color: #a5b4fc;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-}
-
-/* ── Camera section ── */
-.camera-section {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16/9;
-  background: #000;
-  overflow: hidden;
 }
 
 .camera-section video {
@@ -209,8 +296,8 @@ body::before {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(0,0,0,0.65);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   padding: 6px 14px;
   backdrop-filter: blur(10px);
@@ -220,7 +307,8 @@ body::before {
 }
 
 .status-dot {
-  width: 8px; height: 8px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -236,8 +324,15 @@ body::before {
 }
 
 @keyframes pulse-green {
-  0%, 100% { box-shadow: 0 0 4px var(--green); }
-  50% { box-shadow: 0 0 12px var(--green); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 4px var(--green);
+  }
+
+  50% {
+    box-shadow: 0 0 12px var(--green);
+  }
 }
 
 /* ── Bottom panel ── */
@@ -277,23 +372,23 @@ body::before {
 .btn-capture.start {
   background: linear-gradient(135deg, #6366f1, #8b5cf6);
   color: white;
-  box-shadow: 0 4px 20px rgba(99,102,241,0.4);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
 }
 
 .btn-capture.start:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 28px rgba(99,102,241,0.5);
+  box-shadow: 0 6px 28px rgba(99, 102, 241, 0.5);
 }
 
 .btn-capture.stop {
   background: linear-gradient(135deg, #ef4444, #dc2626);
   color: white;
-  box-shadow: 0 4px 20px rgba(239,68,68,0.3);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
 }
 
 .btn-capture.stop:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 28px rgba(239,68,68,0.4);
+  box-shadow: 0 6px 28px rgba(239, 68, 68, 0.4);
 }
 
 .btn-capture:active {
@@ -306,7 +401,7 @@ body::before {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 12px;
@@ -343,18 +438,18 @@ body::before {
 }
 
 .kp-count-badge {
-  background: rgba(99,102,241,0.15);
+  background: rgba(99, 102, 241, 0.15);
   color: #a5b4fc;
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid rgba(99,102,241,0.25);
+  border: 1px solid rgba(99, 102, 241, 0.25);
 }
 
 .keypoints-box {
   background: #080c17;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 12px;
   height: 140px;
   overflow-y: auto;
@@ -365,9 +460,18 @@ body::before {
   color: #86efac;
 }
 
-.keypoints-box::-webkit-scrollbar { width: 4px; }
-.keypoints-box::-webkit-scrollbar-track { background: transparent; }
-.keypoints-box::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; }
+.keypoints-box::-webkit-scrollbar {
+  width: 4px;
+}
+
+.keypoints-box::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.keypoints-box::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 4px;
+}
 
 .keypoints-placeholder {
   height: 100%;

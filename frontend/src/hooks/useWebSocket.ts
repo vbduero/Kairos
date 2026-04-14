@@ -9,6 +9,9 @@ export interface WebSocketResponse {
   predicted_sign: string | null;
   confidence: number;
   buffer_progress: number;
+  // 126 floats crudos de MediaPipe: [x,y,z] × 21 landmarks × 2 manos.
+  // Vacío cuando no hay mano detectada.
+  keypoints: number[];
 }
 
 interface UseWebSocketReturn {
@@ -40,26 +43,13 @@ export const useWebSocket = (): UseWebSocketReturn => {
     };
 
     ws.onmessage = (event) => {
-  try {
-    const data: WebSocketResponse = JSON.parse(event.data);
-    
-    setResponse(prev => {
-      // Si el backend no manda seña nueva pero la mano sigue detectada,
-      // conservar la última seña en pantalla
-      if (data.hand_detected && data.predicted_sign === null && prev?.predicted_sign) {
-        return {
-          ...data,
-          predicted_sign: prev.predicted_sign,
-          confidence: prev.confidence,
-        };
+      try {
+        const data: WebSocketResponse = JSON.parse(event.data);
+        setResponse(data);
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
       }
-      // Si la mano desapareció, limpiar todo
-      return data;
-    });
-  } catch (error) {
-    console.error('Error parsing WebSocket message:', error);
-  }
-};
+    };
 
     ws.onclose = () => {
       console.log('WebSocket disconnected. Reconnecting in 3s...');
@@ -106,8 +96,9 @@ export const useWebSocket = (): UseWebSocketReturn => {
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    canvas.width = videoElement.videoWidth || 640;
-    canvas.height = videoElement.videoHeight || 480;
+    // Limitar a 640×480: resoluciones mayores no mejoran MediaPipe y aumentan latencia
+    canvas.width  = Math.min(videoElement.videoWidth  || 640, 640);
+    canvas.height = Math.min(videoElement.videoHeight || 480, 480);
 
     intervalRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN &&
@@ -121,7 +112,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
           if (blob && wsRef.current?.readyState === WebSocket.OPEN) {
             blob.arrayBuffer().then(buffer => wsRef.current!.send(buffer));
           }
-        }, 'image/jpeg', 0.7);
+        }, 'image/jpeg', 0.85);
       }
     }, 40);  // 25 fps — llena el buffer de 5 frames en 200 ms en vez de 250 ms
   }, []);

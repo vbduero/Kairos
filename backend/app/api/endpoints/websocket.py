@@ -19,9 +19,12 @@ _classifier_servicio: SignClassifierService | None = None
 def get_mediapipe_servicio() -> MediaPipeService:
     global _mediapipe_servicio
     if _mediapipe_servicio is None:
-        print("🔄 Inicializando MediaPipe (primera vez)…")
-        _mediapipe_servicio = MediaPipeService()
-        print("✅ MediaPipe listo.")
+        print("🔄 Inicializando MediaPipe Holistic (primera vez)…")
+        _mediapipe_servicio = MediaPipeService(
+            min_detection_confidence=0.40,   # Holistic necesita umbral más bajo que Hands
+            min_tracking_confidence=0.30,    # tracking bajo: mantiene manos en orientaciones difíciles
+        )
+        print("✅ MediaPipe Holistic listo.")
     return _mediapipe_servicio
 
 def get_classifier_servicio() -> SignClassifierService:
@@ -33,15 +36,26 @@ def get_classifier_servicio() -> SignClassifierService:
     return _classifier_servicio
 
 
-MIN_HAND_STREAK     = 3    # espera 3 frames seguidos antes de predecir (evita falsas detecciones al aparecer la mano)
-NO_HAND_RESET_AFTER = 6    # frames sin mano antes de limpiar buffer (evita reset por pérdidas momentáneas)
-RAW_CONF_MIN        = 0.40
-CONF_THRESHOLD      = 0.75
-ENTROPY_THRESHOLD   = 0.45
-COOLDOWN_FRAMES     = 12   # frames de espera tras una predicción (~600ms a 20fps)
-PRED_WINDOW_SIZE    = 1    # 1 voto es suficiente para confirmar
+MIN_HAND_STREAK     = 3     # frames seguidos con mano antes de empezar a predecir
+NO_HAND_RESET_AFTER = 6     # frames sin mano antes de limpiar buffer
+RAW_CONF_MIN        = 0.45  # confianza mínima para entrar en la ventana de votación
+CONF_THRESHOLD      = 0.70  # confianza promedio mínima para confirmar (más bajo gracias a votación 3-frame)
+ENTROPY_THRESHOLD   = 0.42  # entropía máxima aceptable (modelo seguro si entropía es baja)
+MARGIN_MIN          = 0.12  # gap mínimo entre top-1 y top-2 (rechaza predicciones ambiguas)
+PRED_WINDOW_SIZE    = 3     # votos necesarios para confirmar una seña (ventana de 3 frames)
+MIN_VOTES           = 2     # votos mínimos del ganador dentro de la ventana (requiere mayoría 2/3)
+EMA_ALPHA           = 0.65  # peso del frame actual en el suavizado EMA de keypoints (35% = historia)
 
 LOG_SUMMARY_EVERY   = 20
+
+
+def _adaptive_cooldown(conf: float) -> int:
+    """Cooldown adaptativo: mayor confianza → más corto (detección más fluida)."""
+    if conf >= 0.92:
+        return 5   # ~250ms — muy seguro, permite detectar la siguiente seña rápido
+    if conf >= 0.80:
+        return 8   # ~400ms — normal
+    return 11      # ~550ms — borderline, da más tiempo para limpiar el gesto
 
 
 @router.websocket("/ws")
@@ -63,6 +77,9 @@ async def websocket_endpoint(websocket: WebSocket):
     # ── Última seña confirmada (para mantenerla en pantalla) ──
     last_sign        = None
     last_conf        = 0.0
+
+    # ── EMA smoothing de keypoints entre frames ──
+    kp_ema: list | None = None
 
     # ── Contadores para estadísticas periódicas ──
     frame_n          = 0
@@ -103,18 +120,27 @@ async def websocket_endpoint(websocket: WebSocket):
                 detected_frames += 1
                 no_hand_frames   = 0
                 hand_streak     += 1
-                hand2_kps        = keypoints[63:]
+                hand2_kps        = keypoints[63:126]
                 hands_count      = 2 if any(k != 0.0 for k in hand2_kps) else 1
 
                 if not prev_hand_state:
                     print(f"\n[MANO+]  frame={frame_n}  manos={hands_count}  mp={mp_ms:.0f}ms")
                 prev_hand_state = True
 
+                # ── EMA smoothing: suaviza jitter de MediaPipe entre frames ─
+                if kp_ema is None:
+                    kp_ema = list(keypoints)
+                else:
+                    kp_ema = [EMA_ALPHA * c + (1.0 - EMA_ALPHA) * p
+                               for c, p in zip(keypoints, kp_ema)]
+                kp_smooth = kp_ema
+
                 predicted_sign = None
                 confidence     = 0.0
 
                 if hand_streak >= MIN_HAND_STREAK:
-                    classifier.add_frame_to_buffer(buffer, keypoints)
+                    # Usar keypoints suavizados para el buffer del clasificador
+                    classifier.add_frame_to_buffer(buffer, kp_smooth)
                     buf_len = len(buffer)
 
                     if buf_len >= classifier.sequence_length:
@@ -128,34 +154,39 @@ async def websocket_endpoint(websocket: WebSocket):
                         else:
                             # ── Clasificador ─────────────────────
                             t1 = time.monotonic()
-                            raw_sign, raw_conf, raw_entropy = classifier.predict_from_buffer(buffer)
+                            raw_sign, raw_conf, raw_entropy, raw_margin = classifier.predict_from_buffer(buffer)
                             cls_ms = (time.monotonic() - t1) * 1000
                             cls_times.append(cls_ms)
 
                             passed_conf    = raw_conf    >= RAW_CONF_MIN
                             passed_entropy = raw_entropy <= ENTROPY_THRESHOLD
-                            accepted       = raw_sign is not None and passed_conf and passed_entropy
+                            passed_margin  = raw_margin  >= MARGIN_MIN
+                            accepted       = raw_sign is not None and passed_conf and passed_entropy and passed_margin
 
                             if not accepted:
                                 if raw_sign is None:
                                     reason = "sin_signo"
                                 elif not passed_conf:
                                     reason = f"conf_baja({raw_conf:.2f}<{RAW_CONF_MIN})"
-                                else:
+                                elif not passed_entropy:
                                     reason = f"entropia_alta({raw_entropy:.3f}>{ENTROPY_THRESHOLD})"
+                                else:
+                                    reason = f"margen_bajo({raw_margin:.3f}<{MARGIN_MIN})"
                                 print(
                                     f"[RECH]   sign={raw_sign}  conf={raw_conf:.2f}  "
-                                    f"ent={raw_entropy:.3f}  cls={cls_ms:.0f}ms  → {reason}"
+                                    f"ent={raw_entropy:.3f}  mrg={raw_margin:.3f}  "
+                                    f"cls={cls_ms:.0f}ms  → {reason}"
                                 )
                             else:
                                 pred_history.append((raw_sign, raw_conf))
                                 print(
                                     f"[VOTO]   sign={raw_sign}  conf={raw_conf:.2f}  "
-                                    f"ent={raw_entropy:.3f}  cls={cls_ms:.0f}ms  "
+                                    f"ent={raw_entropy:.3f}  mrg={raw_margin:.3f}  "
+                                    f"cls={cls_ms:.0f}ms  "
                                     f"historial=[{len(pred_history)}/{PRED_WINDOW_SIZE}]"
                                 )
 
-                            # ── Votación ─────────────────────────
+                            # ── Votación (requiere mayoría MIN_VOTES/PRED_WINDOW_SIZE) ──
                             if len(pred_history) == PRED_WINDOW_SIZE:
                                 signs        = [p[0] for p in pred_history]
                                 winner       = Counter(signs).most_common(1)[0][0]
@@ -163,28 +194,30 @@ async def websocket_endpoint(websocket: WebSocket):
                                 avg_conf     = sum(winner_confs) / len(winner_confs)
                                 votes        = signs.count(winner)
 
-                                if avg_conf >= CONF_THRESHOLD:
+                                if votes >= MIN_VOTES and avg_conf >= CONF_THRESHOLD:
                                     predicted_sign   = winner
                                     confidence       = avg_conf
-                                    last_sign        = winner      # ✅ guarda última seña
+                                    last_sign        = winner
                                     last_conf        = avg_conf
-                                    # ✅ NO limpiar buffer: mantiene frames para predicción continua
                                     pred_history.clear()
-                                    cooldown_counter = COOLDOWN_FRAMES
+                                    cd = _adaptive_cooldown(avg_conf)
+                                    cooldown_counter = cd
                                     print(
                                         f"\n{'='*50}\n"
                                         f"[PRED ✅] sign={predicted_sign}  "
                                         f"conf={confidence:.2f}  "
                                         f"votos={votes}/{PRED_WINDOW_SIZE}\n"
-                                        f"  → buffer conservado | cooldown={COOLDOWN_FRAMES} frames "
-                                        f"({COOLDOWN_FRAMES/20*1000:.0f} ms)\n"
+                                        f"  → cooldown={cd} frames ({cd/20*1000:.0f} ms)\n"
                                         f"{'='*50}"
                                     )
                                 else:
+                                    if votes < MIN_VOTES:
+                                        reason_v = f"votos_insuf({votes}<{MIN_VOTES})"
+                                    else:
+                                        reason_v = f"conf_insuf({avg_conf:.2f}<{CONF_THRESHOLD})"
                                     print(
                                         f"[VOTO❌] ganador={winner}  avg_conf={avg_conf:.2f}  "
-                                        f"votos={votes}/{PRED_WINDOW_SIZE}  "
-                                        f"→ conf insuficiente (< {CONF_THRESHOLD})"
+                                        f"votos={votes}/{PRED_WINDOW_SIZE}  → {reason_v}"
                                     )
                                     pred_history.clear()
 
@@ -195,12 +228,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     "predicted_sign":  predicted_sign,
                     "confidence":      confidence,
                     "buffer_progress": round(len(buffer) / classifier.sequence_length, 2),
+                    "keypoints":       keypoints,   # sin suavizar (display del skeleton)
                 }
 
             else:
                 # ── Sin mano ─────────────────────────────────────
                 no_hand_frames += 1
                 hand_streak     = 0
+                kp_ema          = None  # reset EMA al perder la mano
 
                 if prev_hand_state:
                     print(
@@ -217,7 +252,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         )
                     buffer.clear()
                     pred_history.clear()
-                    # ✅ limpiar última seña solo cuando la mano desaparece de verdad
                     last_sign = None
                     last_conf = 0.0
 
@@ -228,6 +262,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "predicted_sign":  None,
                     "confidence":      0.0,
                     "buffer_progress": 0.0,
+                    "keypoints":       [],
                 }
 
             # ── Alerta de lentitud ────────────────────────────────

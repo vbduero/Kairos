@@ -25,6 +25,12 @@ build/
 *.tflite
 *.tasks
 
+# ===== Datasets binarios (demasiado grandes para git) =====
+ai/datasets/*.npy
+ai/datasets/sequences/
+ai/datasets/sequences_augmented/
+ai/models/saved/training_history.png
+
 # ===== Variables de entorno =====
 .env
 .env.local
