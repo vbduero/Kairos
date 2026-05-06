@@ -4,6 +4,7 @@ import { NavLink } from 'react-router-dom';
 const LINKS = [
   { to: '/',       label: 'Traductor',     end: true  },
   { to: '/avatar', label: 'Avatar LSC',    end: false },
+  { to: '/grabar', label: 'Contribuir',    end: false },
   { to: '/about',  label: 'Nosotros',      end: false },
 ];
 

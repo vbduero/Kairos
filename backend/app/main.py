@@ -45,6 +45,7 @@ async def health_check():
 
 
 # ── Routers ───────────────────────────────────────────────
-from app.api.endpoints import signs, websocket
+from app.api.endpoints import signs, websocket, record
 app.include_router(signs.router, prefix="/api/v1")
 app.include_router(websocket.router)
+app.include_router(record.router)

@@ -100,21 +100,26 @@ export const useWebSocket = (): UseWebSocketReturn => {
     canvas.width  = Math.min(videoElement.videoWidth  || 640, 640);
     canvas.height = Math.min(videoElement.videoHeight || 480, 480);
 
-    intervalRef.current = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN &&
-          ctx && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
-        // Flip horizontally to match training data (collected with cv2.flip)
-        ctx.save();
-        ctx.scale(-1, 1);
-        ctx.drawImage(videoElement, -canvas.width, 0, canvas.width, canvas.height);
-        ctx.restore();
-        canvas.toBlob((blob) => {
-          if (blob && wsRef.current?.readyState === WebSocket.OPEN) {
-            blob.arrayBuffer().then(buffer => wsRef.current!.send(buffer));
-          }
-        }, 'image/jpeg', 0.85);
-      }
-    }, 40);  // 25 fps — llena el buffer de 5 frames en 200 ms en vez de 250 ms
+    const sendFrame = () => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      if (!ctx || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
+      // Backpressure: si el WS aún tiene datos en cola, omitir este frame
+      if (wsRef.current.bufferedAmount > 0) return;
+
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(videoElement, -canvas.width, 0, canvas.width, canvas.height);
+      ctx.restore();
+      // Enviar Blob directamente — evita la conversión arrayBuffer() async
+      canvas.toBlob((blob) => {
+        if (blob && wsRef.current?.readyState === WebSocket.OPEN
+            && wsRef.current.bufferedAmount === 0) {
+          wsRef.current.send(blob);
+        }
+      }, 'image/jpeg', 0.80);
+    };
+
+    intervalRef.current = setInterval(sendFrame, 50);  // 20 fps estable
   }, []);
 
   const stopSendingFrames = useCallback(() => {

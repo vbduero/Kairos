@@ -6,6 +6,13 @@
 # ============================================================
 
 import numpy as np
+
+# Deshabilitar TensorRT antes de importar TF para evitar
+# bloqueos de AppLocker/WDAC con _pywrap_py_utils.pyd en Windows
+import os
+os.environ['TF_ENABLE_TENSORRT']  = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 import matplotlib.pyplot as plt
@@ -51,15 +58,20 @@ def entrenar():
     if use_lstm:
         model = models.Sequential([
             layers.Input(shape=(seq_len, features)),
-            layers.LSTM(128, return_sequences=True),
+            layers.Bidirectional(layers.LSTM(128, return_sequences=True)),
+            layers.BatchNormalization(),
             layers.Dropout(0.3),
-            layers.LSTM(64),
+            layers.Bidirectional(layers.LSTM(64)),
+            layers.BatchNormalization(),
             layers.Dropout(0.3),
+            layers.Dense(128, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.25),
             layers.Dense(64, activation='relu'),
-            layers.Dropout(0.3),
+            layers.Dropout(0.2),
             layers.Dense(num_classes, activation='softmax')
         ])
-        print("🧠 Arquitectura: LSTM (secuencias temporales)")
+        print("🧠 Arquitectura: BiLSTM + BatchNorm (secuencias temporales)")
     else:
         model = models.Sequential([
             layers.Input(shape=(features,)),
@@ -71,15 +83,17 @@ def entrenar():
         ])
         print("🧠 Arquitectura: Dense (frames individuales)")
 
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
+    model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     model.summary()
 
-    early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)
+    early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+    reduce_lr  = callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, min_lr=1e-5, verbose=1)
 
     print("\n⏳ Entrenando...")
     history = model.fit(
-        X_train, y_train, epochs=100, batch_size=32,
-        validation_data=(X_test, y_test), callbacks=[early_stop], verbose=1
+        X_train, y_train, epochs=150, batch_size=32,
+        validation_data=(X_test, y_test), callbacks=[early_stop, reduce_lr], verbose=1
     )
 
     test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)

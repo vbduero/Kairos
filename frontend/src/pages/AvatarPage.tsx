@@ -4,16 +4,17 @@
 //  las señas correspondientes animando el esqueleto de manos.
 // ============================================================
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { Hueso, CONEXIONES } from '../components/avatar/HandSkeleton';
 
 const API = 'http://localhost:8000/api/v1';
 const FACTOR_INTERP = 18;                              // 5fps × 18 → ~270 frames a ~17ms ≈ 60fps suave
 const MS_POR_FRAME = Math.round(1000 / 60);           // ≈ 17ms — sincronizado con pantalla
 const MS_PAUSA = 350;                             // pausa entre señas
+
+interface SignMeta { word: string; available: boolean; }
 
 // ── Sleep sincronizado con requestAnimationFrame ─────────────
 // Más suave que setTimeout porque usa el ciclo de renderizado del browser
@@ -26,11 +27,6 @@ const rafSleep = (ms: number): Promise<void> => new Promise(resolve => {
   requestAnimationFrame(tick);
 });
 
-// ── Vocabulario disponible (coincide con sequences/) ────────
-const VOCAB = new Set([
-  'hola', 'adios', 'gracias', 'por favor', 'si', 'no', 'ayuda',
-  'm', 'n', 'ñ', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-]);
 
 // ── Normaliza texto: minúsculas + quita tildes ───────────────
 function normalizar(s: string): string {
@@ -40,21 +36,21 @@ function normalizar(s: string): string {
 }
 
 // ── Tokeniza texto → lista de señas disponibles ─────────────
-function tokenizar(texto: string): { token: string; encontrado: boolean }[] {
+function tokenizar(texto: string, vocab: Set<string>): { token: string; encontrado: boolean }[] {
   const palabras = texto.trim().split(/\s+/).filter(Boolean);
   const resultado: { token: string; encontrado: boolean }[] = [];
   let i = 0;
   while (i < palabras.length) {
     if (i + 1 < palabras.length) {
       const bigrama = normalizar(`${palabras[i]} ${palabras[i + 1]}`);
-      if (VOCAB.has(bigrama)) { resultado.push({ token: bigrama, encontrado: true }); i += 2; continue; }
+      if (vocab.has(bigrama)) { resultado.push({ token: bigrama, encontrado: true }); i += 2; continue; }
     }
     const palabra = normalizar(palabras[i]);
-    if (VOCAB.has(palabra)) {
+    if (vocab.has(palabra)) {
       resultado.push({ token: palabra, encontrado: true });
     } else {
       for (const letra of palabra) {
-        if (VOCAB.has(letra)) resultado.push({ token: letra, encontrado: true });
+        if (vocab.has(letra)) resultado.push({ token: letra, encontrado: true });
         else if (/[a-zñ]/.test(letra)) resultado.push({ token: letra, encontrado: false });
       }
     }
@@ -95,66 +91,152 @@ function interpolarFrames(frames: number[][]): number[][] {
   return out;
 }
 
-// ── Parsing de mano normalizado relativo a la muñeca ────────
-// Centra y orienta la mano de frente independientemente de
-// dónde estaba en el encuadre al momento de la grabación.
-function parsearManoAvatar(kp: number[], offset: number): THREE.Vector3[] | null {
-  const wx = kp[offset];
-  const wy = kp[offset + 1];
-  if (wx === 0 && wy === 0) return null;  // mano no grabada
-  const wz = kp[offset + 2];
+// ── Paleta del maniquí ───────────────────────────────────────
+const SKIN  = '#d4956a';
+const SHIRT = '#3b4e9e';
+const HAIR  = '#1a0f05';
 
+// ── Posiciones fijas del cuerpo (nunca cambian entre frames) ─
+const HOMBRO_L = new THREE.Vector3(-0.30, 0.12, 0);
+const HOMBRO_R = new THREE.Vector3( 0.30, 0.12, 0);
+const CABEZA   = new THREE.Vector3(0,  0.82, 0);
+const CUELLO_B = new THREE.Vector3(0,  0.40, 0);
+const CUELLO_T = new THREE.Vector3(0,  0.58, 0);
+const TORSO_C  = new THREE.Vector3(0, -0.05, 0);
+
+// ── Muñeca en world-space (mapeada desde imagen) ─────────────
+// Mapeamos solo la muñeca (landmark 0) al espacio mundial.
+// El centro de imagen (0.5, 0.5) → (0, 0.12) para alinearse con los hombros.
+function mapMuneca(kp: number[], off: number): THREE.Vector3 | null {
+  const x = kp[off], y = kp[off + 1];
+  if (x === 0 && y === 0) return null;
+  return new THREE.Vector3(
+    (x - 0.5) * 1.6,           // ±0.8 horizontal
+    -(y - 0.5) * 1.6 + 0.12,   // centrado verticalmente con los hombros
+    kp[off + 2] * 0.25,
+  );
+}
+
+// ── Dedos relativos a la muñeca (landmark 0 = origen) ────────
+function parsearDedos(kp: number[], off: number): THREE.Vector3[] | null {
+  const wx = kp[off], wy = kp[off + 1], wz = kp[off + 2];
+  if (wx === 0 && wy === 0) return null;
   return Array.from({ length: 21 }, (_, i) => new THREE.Vector3(
-    (kp[offset + i * 3] - wx) * 3.5,  // relativo a muñeca, escalado
-    (kp[offset + i * 3 + 1] - wy) * -3.5,  // relativo a muñeca, y invertido
-    (kp[offset + i * 3 + 2] - wz) * 1.0,  // profundidad mínima → mano de frente
+    (kp[off + i * 3]     - wx) * 2.0,
+    -(kp[off + i * 3 + 1] - wy) * 2.0,
+    (kp[off + i * 3 + 2] - wz) * 0.5,
   ));
 }
 
-// ── Componente de una mano (usa puntos pre-calculados) ───────
-function ManoAvatar({ kp, offset, colorJoint, colorBone }: {
-  kp: number[]; offset: number; colorJoint: string; colorBone: string;
-}) {
-  const puntos = useMemo(() => parsearManoAvatar(kp, offset), [kp, offset]);
-  if (!puntos) return null;
+// ── Cápsula entre dos puntos ─────────────────────────────────
+function Capsula({ a, b, r, color }: { a: THREE.Vector3; b: THREE.Vector3; r: number; color: string }) {
+  const dir = b.clone().sub(a);
+  const len = dir.length();
+  if (len < 0.002) return null;
+  const mid = a.clone().lerp(b, 0.5);
+  const q   = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
   return (
-    <group position={[0, -0.25, 0]}>
-      {puntos.map((p, i) => (
-        <mesh key={i} position={p}>
-          <sphereGeometry args={[i === 0 ? 0.04 : 0.025, 10, 10]} />
-          <meshStandardMaterial color={colorJoint} emissive={colorJoint} emissiveIntensity={0.25} roughness={0.3} metalness={0.4} />
-        </mesh>
+    <mesh position={mid} quaternion={q}>
+      <capsuleGeometry args={[r, Math.max(0, len - r * 2), 4, 8]} />
+      <meshStandardMaterial color={color} roughness={0.68} metalness={0.06} />
+    </mesh>
+  );
+}
+
+// ── Esfera articulación ──────────────────────────────────────
+function Articulacion({ pos, r, color }: { pos: THREE.Vector3; r: number; color: string }) {
+  return (
+    <mesh position={pos}>
+      <sphereGeometry args={[r, 10, 10]} />
+      <meshStandardMaterial color={color} roughness={0.68} metalness={0.06} />
+    </mesh>
+  );
+}
+
+// ── Conexiones de una mano ───────────────────────────────────
+const MANO_SEGS: [number, number, number][] = [
+  [0,1,16],[1,2,15],[2,3,14],[3,4,13],
+  [0,5,18],[5,6,15],[6,7,14],[7,8,13],
+  [9,10,15],[10,11,14],[11,12,13],
+  [13,14,14],[14,15,13],[15,16,12],
+  [17,18,13],[18,19,12],[19,20,11],
+  [5,9,20],[9,13,20],[13,17,19],[0,17,18],[0,9,18],
+];
+
+// ── Mano 3D: recibe dedos ya calculados + posición de muñeca ─
+function Mano3D({ dedos, muneca }: { dedos: THREE.Vector3[]; muneca: THREE.Vector3 }) {
+  return (
+    <group position={muneca}>
+      {MANO_SEGS.map(([a, b, g], i) => (
+        <Capsula key={i} a={dedos[a]} b={dedos[b]} r={g / 1000} color={SKIN} />
       ))}
-      {CONEXIONES.map(([a, b], i) => (
-        <Hueso key={i} a={puntos[a]} b={puntos[b]} color={colorBone} />
+      {dedos.map((p, i) => (
+        <Articulacion key={i} pos={p} r={i === 0 ? 0.024 : 0.016} color={SKIN} />
       ))}
     </group>
   );
 }
 
-// ── Escena 3D ────────────────────────────────────────────────
+// ── Escena 3D — maniquí estable ──────────────────────────────
 function EscenaAvatar({ keypoints, orbitRef }: { keypoints: number[]; orbitRef: React.RefObject<any> }) {
-  const hayMano = keypoints.length >= 126;  // acepta 126 (legacy) y 168 (nuevo)
+  const kp    = keypoints;
+  const hasKp = kp.length >= 126;
+
+  // Muñecas en world-space (solo se mueven los brazos/manos)
+  const mun1  = useMemo(() => hasKp ? mapMuneca(kp, 0)  : null, [kp]);
+  const mun2  = useMemo(() => hasKp ? mapMuneca(kp, 63) : null, [kp]);
+  // Dedos relativos a la muñeca (pose de la mano)
+  const ded1  = useMemo(() => hasKp ? parsearDedos(kp, 0)  : null, [kp]);
+  const ded2  = useMemo(() => hasKp ? parsearDedos(kp, 63) : null, [kp]);
+
   return (
     <>
       <color attach="background" args={['#07090f']} />
-      <ambientLight intensity={0.4} />
-      <pointLight position={[1.5, 2, 2]} intensity={1.2} color="#a5b4fc" />
-      <pointLight position={[-2, -1, 1]} intensity={0.5} color="#6ee7b7" />
-      {hayMano && (
-        <>
-          <ManoAvatar kp={keypoints} offset={0} colorJoint="#818cf8" colorBone="#4f46e5" />
-          <ManoAvatar kp={keypoints} offset={63} colorJoint="#34d399" colorBone="#059669" />
-        </>
-      )}
-      <OrbitControls
-        ref={orbitRef}
-        enablePan={false}
-        enableZoom={true}
-        minDistance={0.8}
-        maxDistance={4}
-        autoRotate={false}
-      />
+      <ambientLight intensity={0.55} />
+      <directionalLight position={[2, 5, 3]}  intensity={1.3} color="#fff5e8" />
+      <pointLight       position={[-2, 2, 2]}  intensity={0.7} color="#a8c4ff" />
+      <pointLight       position={[0, -1, 2]}  intensity={0.3} color="#ffffff" />
+
+      {/* ── Cabeza ── */}
+      <mesh position={CABEZA}>
+        <sphereGeometry args={[0.175, 24, 24]} />
+        <meshStandardMaterial color={SKIN} roughness={0.70} />
+      </mesh>
+      <mesh position={CABEZA.clone().add(new THREE.Vector3(0, 0.04, 0))}>
+        <sphereGeometry args={[0.182, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.52]} />
+        <meshStandardMaterial color={HAIR} roughness={0.95} />
+      </mesh>
+      {/* Ojos */}
+      {([-0.065, 0.065] as number[]).map((ex, i) => (
+        <mesh key={i} position={CABEZA.clone().add(new THREE.Vector3(ex, 0.02, 0.165))}>
+          <sphereGeometry args={[0.022, 8, 8]} />
+          <meshStandardMaterial color="#1a1a2e" roughness={0.3} />
+        </mesh>
+      ))}
+
+      {/* ── Cuello ── */}
+      <Capsula a={CUELLO_B} b={CUELLO_T} r={0.054} color={SKIN} />
+
+      {/* ── Torso ── */}
+      <mesh position={TORSO_C}>
+        <boxGeometry args={[0.54, 0.50, 0.18]} />
+        <meshStandardMaterial color={SHIRT} roughness={0.85} />
+      </mesh>
+
+      {/* ── Hombros (fijos) ── */}
+      <Articulacion pos={HOMBRO_L} r={0.054} color={SHIRT} />
+      <Articulacion pos={HOMBRO_R} r={0.054} color={SHIRT} />
+
+      {/* ── Brazos: hombro fijo → muñeca dinámica ── */}
+      {mun1 && <Capsula a={HOMBRO_L} b={mun1} r={0.036} color={SKIN} />}
+      {mun2 && <Capsula a={HOMBRO_R} b={mun2} r={0.036} color={SKIN} />}
+
+      {/* ── Manos ── */}
+      {mun1 && ded1 && <Mano3D dedos={ded1} muneca={mun1} />}
+      {mun2 && ded2 && <Mano3D dedos={ded2} muneca={mun2} />}
+
+      <OrbitControls ref={orbitRef} enablePan={false} enableZoom={true}
+        minDistance={0.8} maxDistance={5} autoRotate={false} />
     </>
   );
 }
@@ -193,15 +275,27 @@ export default function AvatarPage() {
   const [hechos, setHechos] = useState<Set<number>>(new Set());
   const [reproduciendo, setReproduciendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vocabDisponible, setVocabDisponible] = useState<string[]>([]);
   const cancelRef = useRef(false);
   const orbitRef = useRef<any>(null);
+
+  const vocab = useMemo(() => new Set(vocabDisponible), [vocabDisponible]);
+
+  useEffect(() => {
+    fetch(`${API}/signs`)
+      .then(r => r.json())
+      .then((data: SignMeta[]) => {
+        setVocabDisponible(data.filter(s => s.available).map(s => s.word));
+      })
+      .catch(() => {});
+  }, []);
 
   const zoomIn = () => { if (orbitRef.current) { orbitRef.current.dollyIn(1.3); orbitRef.current.update(); } };
   const zoomOut = () => { if (orbitRef.current) { orbitRef.current.dollyOut(1.3); orbitRef.current.update(); } };
 
   const traducir = useCallback(async () => {
     if (!texto.trim() || reproduciendo) return;
-    const lista = tokenizar(texto);
+    const lista = tokenizar(texto, vocab);
     if (lista.length === 0) return;
 
     setTokens(lista);
@@ -296,7 +390,7 @@ export default function AvatarPage() {
           )}
         </div>
         {texto.trim() && (() => {
-          const noDisp = tokenizar(texto).filter(t => !t.encontrado).map(t => t.token);
+          const noDisp = tokenizar(texto, vocab).filter(t => !t.encontrado).map(t => t.token);
           return noDisp.length ? (
             <p style={{ fontSize: 12, color: '#f87171', marginTop: 8, paddingLeft: 4 }}>
               Sin seña disponible para: {noDisp.map(t => `"${t}"`).join(', ')}
@@ -388,7 +482,7 @@ export default function AvatarPage() {
               Vocabulario disponible
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {[...VOCAB].map(s => (
+              {vocabDisponible.map(s => (
                 <button key={s} disabled={reproduciendo}
                   onClick={() => setTexto(prev => prev ? `${prev} ${s}` : s)}
                   style={{

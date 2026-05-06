@@ -2,10 +2,10 @@
     "type": "lstm",
     "input_shape": [
         5,
-        168
+        174
     ],
-    "num_classes": 34,
-    "accuracy": 0.9869281053543091,
+    "num_classes": 17,
+    "accuracy": 1.0,
     "sequence_length": 5,
-    "keypoints_per_frame": 168
+    "keypoints_per_frame": 174
 }

@@ -10,7 +10,7 @@ import os
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from utils.keypoint_utils import normalize_sequence, normalize_hand, augment_sequence, SEQUENCE_LEN, KP_TOTAL, KP_PER_HAND
+from utils.keypoint_utils import normalize_sequence, normalize_hand, augment_sequence, SEQUENCE_LEN, KP_TOTAL, KP_HOLISTIC_RAW, KP_PER_HAND
 
 SEQUENCES_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
 AUGMENTED_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences_augmented')
@@ -51,7 +51,8 @@ def augmentar():
 
         for archivo in archivos:
             seq = np.load(os.path.join(dir_sena, archivo))
-            if seq.ndim != 2 or seq.shape[1] not in (KP_LEGACY, KP_TOTAL):
+            # Aceptar 126 (legacy manos) o 168 (holistic crudo de MediaPipe)
+            if seq.ndim != 2 or seq.shape[1] not in (KP_LEGACY, KP_HOLISTIC_RAW):
                 continue
             if seq.shape[0] < SEQUENCE_LEN:
                 continue
@@ -60,16 +61,17 @@ def augmentar():
                 indices = np.linspace(0, seq.shape[0] - 1, SEQUENCE_LEN, dtype=int)
                 seq = seq[indices]
 
-            # Normalizar según formato y unificar a 168 kp
+            # Para legacy (126 kp): normalizar manos y rellenar a 168 kp crudos
+            # para que normalize_sequence pueda calcular las features de zona
             if seq.shape[1] == KP_LEGACY:
-                # Solo manos: normalizar y rellenar cara/hombros con ceros
-                result = np.zeros((seq.shape[0], KP_TOTAL), dtype=np.float32)
+                result = np.zeros((seq.shape[0], KP_HOLISTIC_RAW), dtype=np.float32)
                 for fi in range(seq.shape[0]):
                     kp = seq[fi]
                     h1 = normalize_hand(kp[:KP_PER_HAND].reshape(21, 3))
                     h2 = normalize_hand(kp[KP_PER_HAND:].reshape(21, 3))
                     result[fi, :KP_LEGACY] = np.concatenate([h1.flatten(), h2.flatten()])
                 seq = result
+            # normalize_sequence: 168 raw → 174 (añade 6 features de zona)
             seq_norm = normalize_sequence(seq)
             np.save(os.path.join(dir_aug, f"orig_{archivo}"), seq_norm)
             n_generado += 1

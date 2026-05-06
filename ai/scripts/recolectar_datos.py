@@ -18,7 +18,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 try:
     from app.services.mediapipe_service import MediaPipeService
-    from utils.keypoint_utils import KP_TOTAL, SEQUENCE_LEN
+    from utils.keypoint_utils import KP_TOTAL, KP_HOLISTIC_RAW, KP_PER_HAND, SEQUENCE_LEN
 except ImportError as e:
     print(f"❌ Error de importación: {e}")
     sys.exit(1)
@@ -48,10 +48,17 @@ VOCABULARIO = [
     "n", "ñ", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
 ]
 
-MUESTRAS_POR_SENA = 30
-FRAME_INTERVAL_MS = 200
+MUESTRAS_POR_SENA = 50
+FRAME_INTERVAL_MS = 200   # ms entre frames → 8 × 200 = 1.6 s de grabación
 SEQUENCES_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
 ANCHO = 58  # ancho interior del cuadro
+
+# Resoluciones disponibles para selección
+RESOLUCIONES = {
+    "1": (640,  480,  "640×480  — Estándar (webcam integrada)"),
+    "2": (1280, 720,  "1280×720 — HD  (iPhone con Camo / webcam HD)"),
+    "3": (1920, 1080, "1920×1080 — FHD (iPhone con Camo calidad máxima)"),
+}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -167,6 +174,149 @@ class CamaraAuto:
         return frame
 
 
+# ── Selector de cámara ───────────────────────────────────────
+
+def _abrir_camara(idx: int) -> cv2.VideoCapture:
+    """
+    Intenta abrir la cámara con el mejor backend disponible.
+    Cámaras virtuales (Camo, OBS, etc.) necesitan MSMF en Windows;
+    las físicas van bien con DSHOW (más rápido) o el default.
+    """
+    for backend in (cv2.CAP_MSMF, cv2.CAP_DSHOW, 0):
+        cap = cv2.VideoCapture(idx, backend)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret and frame is not None and frame.any():
+                return cap          # primer backend que entrega frames reales
+            cap.release()
+    # último recurso: sin flag
+    return cv2.VideoCapture(idx)
+
+
+def detectar_camaras(max_idx: int = 9) -> list:
+    """Escanea índices 0..max_idx y retorna lista de (índice, ancho, alto)."""
+    disponibles = []
+    for idx in range(max_idx + 1):
+        cap = _abrir_camara(idx)
+        if cap.isOpened():
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            disponibles.append((idx, w, h))
+            cap.release()
+    return disponibles
+
+
+def seleccionar_camara_y_resolucion() -> tuple:
+    """
+    Muestra las cámaras detectadas, deja elegir índice y resolución.
+    Retorna (indice_camara, ancho, alto).
+    """
+    limpiar()
+    print(f"\n{CY}╔{'═' * ANCHO}╗{R}")
+    print(f"{CY}║{R}{B}{'  CONFIGURACIÓN DE CÁMARA':^{ANCHO}}{R}{CY}║{R}")
+    print(f"{CY}╚{'═' * ANCHO}╝{R}\n")
+
+    print(f"  {DM}Buscando cámaras disponibles...{R}", end="", flush=True)
+    disponibles = detectar_camaras()
+    print(f"\r  {GR}Cámaras encontradas: {len(disponibles)}{R}               \n")
+
+    if not disponibles:
+        print(f"  {RD}❌ No se detectó ninguna cámara. Verifica la conexión.{R}\n")
+        input(f"  {DM}Presiona ENTER para salir...{R}")
+        sys.exit(1)
+
+    print(f"  {B}{'#':<5} {'Índice':<8} {'Resolución detectada'}{R}")
+    print(f"  {'─'*40}")
+    for i, (idx, w, h) in enumerate(disponibles):
+        etiqueta = f"{GR}[Camo/iPhone]{R}" if idx > 0 else f"{DM}[Integrada] {R}"
+        print(f"  {BL}[{i+1}]{R}   idx={idx}    {w}×{h}   {etiqueta}")
+
+    print()
+    cam_idx = 0
+    if len(disponibles) > 1:
+        while True:
+            raw = input(f"  {CY}Selecciona la cámara [1-{len(disponibles)}]: {R}").strip()
+            try:
+                n = int(raw)
+                if 1 <= n <= len(disponibles):
+                    cam_idx = disponibles[n - 1][0]
+                    break
+            except ValueError:
+                pass
+            print(f"  {RD}Opción inválida.{R}")
+    else:
+        cam_idx = disponibles[0][0]
+        print(f"  {DM}Solo una cámara disponible → usando índice {cam_idx}{R}")
+
+    # Selección de resolución
+    print(f"\n  {B}Resolución de captura:{R}")
+    for k, (w, h, desc) in RESOLUCIONES.items():
+        print(f"  {BL}[{k}]{R} {desc}")
+    print(f"  {BL}[ENTER]{R} {DM}Usar resolución detectada de la cámara{R}")
+    print()
+
+    res_w, res_h = disponibles[[d[0] for d in disponibles].index(cam_idx)][1:3]
+    raw = input(f"  {CY}Selecciona resolución [1-3 o ENTER]: {R}").strip()
+    if raw in RESOLUCIONES:
+        res_w, res_h = RESOLUCIONES[raw][0], RESOLUCIONES[raw][1]
+
+    print(f"\n  {GR}✔ Cámara índice {cam_idx} — resolución {res_w}×{res_h}{R}\n")
+    return cam_idx, res_w, res_h
+
+
+# ── Overlay de regla de tercios ───────────────────────────────
+
+def dibujar_tercios(frame: np.ndarray, alpha: float = 0.35) -> np.ndarray:
+    """
+    Dibuja la cuadrícula de regla de tercios (3×3) sobre el frame.
+    Usa una capa semi-transparente para no tapar la imagen.
+    """
+    h, w = frame.shape[:2]
+    overlay = frame.copy()
+    color = (200, 200, 200)
+    grosor = 1
+
+    # Líneas verticales en 1/3 y 2/3
+    for x in [w // 3, 2 * w // 3]:
+        cv2.line(overlay, (x, 0), (x, h), color, grosor)
+    # Líneas horizontales en 1/3 y 2/3
+    for y in [h // 3, 2 * h // 3]:
+        cv2.line(overlay, (0, y), (w, y), color, grosor)
+
+    return cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+
+def dibujar_zona_activa(frame: np.ndarray, kp_raw: list | None) -> np.ndarray:
+    """
+    Si hay keypoints, resalta el tercio donde está la muñeca principal.
+    Ayuda visualmente a ver en qué zona se está ejecutando la seña.
+    """
+    if not kp_raw or len(kp_raw) < 3:
+        return frame
+
+    h, w = frame.shape[:2]
+    # Muñeca mano 1 está en kp[0] y kp[1] (x,y normalizados 0-1 por MediaPipe)
+    wx = int(kp_raw[0] * w)
+    wy = int(kp_raw[1] * h)
+
+    col_z = wx // (w // 3)   # columna 0,1,2
+    row_z = wy // (h // 3)   # fila 0,1,2
+    col_z = min(col_z, 2)
+    row_z = min(row_z, 2)
+
+    x1 = col_z * (w // 3)
+    y1 = row_z * (h // 3)
+    x2 = x1 + w // 3
+    y2 = y1 + h // 3
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 120), -1)
+    frame = cv2.addWeighted(overlay, 0.12, frame, 0.88, 0)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 120), 2)
+
+    return frame
+
+
 # ── Utilidades de UI ──────────────────────────────────────
 
 def limpiar():
@@ -218,7 +368,7 @@ def mostrar_cabecera(conteos=None, completas=None):
 
     print(f"\n{CY}╔{'═' * ANCHO}╗{R}")
     titulo = "MANOS QUE HABLAN — RECOLECCIÓN LSC"
-    sub    = f"2 manos · {SEQUENCE_LEN} frames · 126 keypoints"
+    sub    = f"2 manos · {SEQUENCE_LEN} frames · 174 keypoints + zona"
     print(f"{CY}║{R}{B}{titulo:^{ANCHO}}{R}{CY}║{R}")
     print(f"{CY}║{R}{DM}{sub:^{ANCHO}}{R}{CY}║{R}")
     print(f"{CY}╠{'═' * ANCHO}╣{R}")
@@ -329,13 +479,35 @@ def grabar_sena(service, cap, sena, camara_auto: 'CamaraAuto'):
         # ── Detección en tiempo real para feedback visual ──────────
         _, buf_prev = cv2.imencode('.jpg', frame)
         kp_prev = service.procesar_frame(buf_prev.tobytes())
-        mano_visible = kp_prev is not None and len(kp_prev) == KP_TOTAL
 
-        borde_color = (0, 220, 0) if mano_visible else (80, 80, 80)
-        cv2.rectangle(frame, (0, 0), (640, 480), borde_color, 3)
+        # Contar manos activas: cada mano ocupa KP_PER_HAND valores (63)
+        n_manos = 0
+        if kp_prev and len(kp_prev) == KP_HOLISTIC_RAW:
+            kp_arr = np.array(kp_prev)
+            if np.any(np.abs(kp_arr[:KP_PER_HAND]) > 1e-6):
+                n_manos += 1
+            if np.any(np.abs(kp_arr[KP_PER_HAND:KP_PER_HAND * 2]) > 1e-6):
+                n_manos += 1
 
-        estado_txt = "MANOS + ROSTRO DETECTADOS" if mano_visible else "Sin manos — ajusta posicion"
-        estado_col = (0, 220, 0) if mano_visible else (80, 80, 220)
+        # Regla de tercios + zona activa
+        frame = dibujar_tercios(frame)
+        frame = dibujar_zona_activa(frame, kp_prev)
+
+        if n_manos == 2:
+            borde_color = (0, 220, 0)
+            estado_txt  = "2 manos detectadas — listo"
+            estado_col  = (0, 220, 0)
+        elif n_manos == 1:
+            borde_color = (0, 220, 0)   # verde: 1 mano también es válido
+            estado_txt  = "1 mano detectada — listo"
+            estado_col  = (0, 220, 0)
+        else:
+            borde_color = (80, 80, 80)
+            estado_txt  = "Sin manos — ajusta posicion"
+            estado_col  = (80, 80, 220)
+
+        h_f, w_f = frame.shape[:2]
+        cv2.rectangle(frame, (0, 0), (w_f - 1, h_f - 1), borde_color, 3)
         cv2.putText(frame, estado_txt, (10, 90),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, estado_col, 2)
 
@@ -365,9 +537,11 @@ def grabar_sena(service, cap, sena, camara_auto: 'CamaraAuto'):
                 if ret:
                     frame = cv2.flip(frame, 1)
                     frame, _, _ = camara_auto.procesar(frame)
-                    cv2.putText(frame, str(countdown), (280, 260),
+                    frame = dibujar_tercios(frame)
+                    hc, wc = frame.shape[:2]
+                    cv2.putText(frame, str(countdown), (wc // 2 - 40, hc // 2 + 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 4, (0, 0, 255), 8)
-                    cv2.putText(frame, f"Prepara: {sena.upper()}", (120, 380),
+                    cv2.putText(frame, f"Prepara: {sena.upper()}", (wc // 2 - 120, hc * 3 // 4),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                     cv2.imshow("Recoleccion LSC", frame)
                 cv2.waitKey(800)
@@ -386,7 +560,8 @@ def grabar_sena(service, cap, sena, camara_auto: 'CamaraAuto'):
                 frame, _, _ = camara_auto.procesar(frame)
                 progress = int((f_idx + 1) / SEQUENCE_LEN * 100)
 
-                cv2.rectangle(frame, (0, 0), (640, 480), (0, 0, 255), 5)
+                hr, wr = frame.shape[:2]
+                cv2.rectangle(frame, (0, 0), (wr - 1, hr - 1), (0, 0, 255), 5)
                 cv2.putText(frame, f"GRABANDO {progress}%", (180, 40),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
                 cv2.putText(frame, sena.upper(), (220, 80),
@@ -396,11 +571,12 @@ def grabar_sena(service, cap, sena, camara_auto: 'CamaraAuto'):
                 _, buffer = cv2.imencode('.jpg', frame)
                 keypoints = service.procesar_frame(buffer.tobytes())
 
-                if keypoints and len(keypoints) == KP_TOTAL:
+                # MediaPipe devuelve 168 kp crudos (KP_HOLISTIC_RAW)
+                if keypoints and len(keypoints) == KP_HOLISTIC_RAW:
                     secuencia.append(keypoints)
                     frames_con_mano += 1
                 else:
-                    secuencia.append([0.0] * KP_TOTAL)
+                    secuencia.append([0.0] * KP_HOLISTIC_RAW)
 
                 cv2.waitKey(FRAME_INTERVAL_MS)
 
@@ -612,9 +788,12 @@ def menu():
 # ── Punto de entrada ──────────────────────────────────────
 
 def main():
-    service     = None
-    cap         = None
-    camara_auto = None
+    service      = None
+    cap          = None
+    camara_auto  = None
+    cam_idx      = None
+    cam_w        = None
+    cam_h        = None
 
     while True:
         opcion = menu()
@@ -642,21 +821,24 @@ def main():
 
         # Opciones 1 y 3 necesitan cámara
         if service is None:
+            cam_idx, cam_w, cam_h = seleccionar_camara_y_resolucion()
             limpiar()
-            print(f"\n  {DM}Iniciando cámara y MediaPipe Holistic...{R}")
+            print(f"\n  {DM}Iniciando cámara {cam_idx} ({cam_w}×{cam_h}) y MediaPipe Holistic...{R}")
             print(f"  {DM}(incluye manos + rostro + hombros){R}")
             service = MediaPipeService(min_detection_confidence=0.3,
                                        min_tracking_confidence=0.3)
-            cap = cv2.VideoCapture(0)
+            cap = _abrir_camara(cam_idx)
             if not cap.isOpened():
-                print(f"  {RD}❌ No se pudo acceder a la cámara.{R}\n")
+                print(f"  {RD}❌ No se pudo acceder a la cámara {cam_idx}.{R}\n")
                 service = None
                 input(f"  {DM}Presiona ENTER para continuar...{R}")
                 continue
 
-            # Configuración de resolución estándar
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH,  cam_w)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cam_h)
+            real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            print(f"  {GR}✅ Cámara iniciada — resolución real: {real_w}×{real_h}{R}")
             camara_auto = CamaraAuto(cap)
             print(f"  {GR}✅ Auto-ajuste de iluminación activado.{R}")
 

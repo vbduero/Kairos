@@ -36,15 +36,15 @@ def get_classifier_servicio() -> SignClassifierService:
     return _classifier_servicio
 
 
-MIN_HAND_STREAK     = 3     # frames seguidos con mano antes de empezar a predecir
-NO_HAND_RESET_AFTER = 6     # frames sin mano antes de limpiar buffer
+MIN_HAND_STREAK     = 2     # frames seguidos con mano antes de empezar a predecir
+NO_HAND_RESET_AFTER = 5     # frames sin mano antes de limpiar buffer
 RAW_CONF_MIN        = 0.45  # confianza mínima para entrar en la ventana de votación
-CONF_THRESHOLD      = 0.70  # confianza promedio mínima para confirmar (más bajo gracias a votación 3-frame)
-ENTROPY_THRESHOLD   = 0.42  # entropía máxima aceptable (modelo seguro si entropía es baja)
-MARGIN_MIN          = 0.12  # gap mínimo entre top-1 y top-2 (rechaza predicciones ambiguas)
-PRED_WINDOW_SIZE    = 3     # votos necesarios para confirmar una seña (ventana de 3 frames)
-MIN_VOTES           = 2     # votos mínimos del ganador dentro de la ventana (requiere mayoría 2/3)
-EMA_ALPHA           = 0.65  # peso del frame actual en el suavizado EMA de keypoints (35% = historia)
+CONF_THRESHOLD      = 0.70  # confianza promedio mínima para confirmar
+ENTROPY_THRESHOLD   = 0.42  # entropía máxima aceptable
+MARGIN_MIN          = 0.12  # gap mínimo entre top-1 y top-2
+PRED_WINDOW_SIZE    = 2     # votos necesarios para confirmar una seña (ventana de 2 frames)
+MIN_VOTES           = 2     # votos mínimos del ganador (requiere unanimidad 2/2)
+EMA_ALPHA           = 0.65  # peso del frame actual en el suavizado EMA de keypoints
 
 LOG_SUMMARY_EVERY   = 20
 
@@ -52,10 +52,10 @@ LOG_SUMMARY_EVERY   = 20
 def _adaptive_cooldown(conf: float) -> int:
     """Cooldown adaptativo: mayor confianza → más corto (detección más fluida)."""
     if conf >= 0.92:
-        return 5   # ~250ms — muy seguro, permite detectar la siguiente seña rápido
+        return 3   # ~150ms — muy seguro, pasa rápido a la siguiente seña
     if conf >= 0.80:
-        return 8   # ~400ms — normal
-    return 11      # ~550ms — borderline, da más tiempo para limpiar el gesto
+        return 5   # ~250ms — normal
+    return 8       # ~400ms — borderline, da tiempo para limpiar el gesto
 
 
 @router.websocket("/ws")

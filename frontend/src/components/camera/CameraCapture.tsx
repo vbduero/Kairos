@@ -3,12 +3,72 @@
 //  Integra MediaPipe + Clasificador LSC en tiempo real
 // ============================================================
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCamera } from '../../hooks/useCamera';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { SignDisplay } from '../ui/SignDisplay';
 import { ConfidenceBar } from '../ui/ConfidenceBar';
 import { useTranslatorStore } from '../../store/translatorStore';
+
+// ── Calcula en qué tercio (col, row) está una muñeca ─────────
+// El browser muestra la cámara frontal ya espejada, y el backend
+// procesa el frame también espejado → coordenadas coinciden directo.
+function wristZone(kp: number[], offset: number): { col: number; row: number } | null {
+  const x = kp[offset];
+  const y = kp[offset + 1];
+  if (x === 0 && y === 0) return null;
+  return {
+    col: Math.min(2, Math.floor(x * 3)),
+    row: Math.min(2, Math.floor(y * 3)),
+  };
+}
+
+// ── SVG de zonas activas + cuadrícula de tercios ─────────────
+const ThirdGrid: React.FC<{ keypoints: number[]; handsCount: number }> = ({ keypoints, handsCount }) => {
+  const zones = useMemo(() => {
+    if (!keypoints.length) return [];
+    const result: { col: number; row: number; isSecond: boolean }[] = [];
+    const z1 = wristZone(keypoints, 0);
+    if (z1) result.push({ ...z1, isSecond: false });
+    if (handsCount >= 2) {
+      const z2 = wristZone(keypoints, 63);
+      if (z2) result.push({ ...z2, isSecond: true });
+    }
+    return result;
+  }, [keypoints, handsCount]);
+
+  return (
+    <svg
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+      viewBox="0 0 300 300" preserveAspectRatio="none"
+    >
+      {/* Zonas activas — fill sutil + borde de color */}
+      {zones.map((z, i) => {
+        const x = z.col * 100;
+        const y = z.row * 100;
+        const fill   = z.isSecond ? 'rgba(250,204,21,0.12)' : 'rgba(0,255,120,0.12)';
+        const stroke = z.isSecond ? 'rgba(250,204,21,0.85)' : 'rgba(0,255,120,0.85)';
+        return (
+          <rect key={i} x={x + 1} y={y + 1} width={98} height={98}
+            fill={fill} stroke={stroke} strokeWidth="2" rx="2" />
+        );
+      })}
+      {/* Líneas verticales */}
+      <line x1="100" y1="0" x2="100" y2="300" stroke="rgba(255,255,255,0.22)" strokeWidth="1" strokeDasharray="4 4" />
+      <line x1="200" y1="0" x2="200" y2="300" stroke="rgba(255,255,255,0.22)" strokeWidth="1" strokeDasharray="4 4" />
+      {/* Líneas horizontales */}
+      <line x1="0" y1="100" x2="300" y2="100" stroke="rgba(255,255,255,0.22)" strokeWidth="1" strokeDasharray="4 4" />
+      <line x1="0" y1="200" x2="300" y2="200" stroke="rgba(255,255,255,0.22)" strokeWidth="1" strokeDasharray="4 4" />
+      {/* Puntos de intersección */}
+      {([[100,100],[200,100],[100,200],[200,200]] as [number,number][]).map(([cx,cy]) => (
+        <g key={`${cx}-${cy}`}>
+          <circle cx={cx} cy={cy} r="5" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" />
+          <circle cx={cx} cy={cy} r="1.5" fill="rgba(255,255,255,0.6)" />
+        </g>
+      ))}
+    </svg>
+  );
+};
 
 export const CameraCapture: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -17,6 +77,8 @@ export const CameraCapture: React.FC = () => {
   const [isCapturing, setIsCapturing]   = useState(false);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.50);
   const [lastValidPrediction, setLastValidPrediction] = useState<{ sign: string; confidence: number } | null>(null);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const lastSpokenRef = useRef<string | null>(null);
 
   const updateTranslator = useTranslatorStore(s => s.update);
   // Auto-clear: se resetea con cada nueva predicción válida.
@@ -110,6 +172,21 @@ export const CameraCapture: React.FC = () => {
     });
   }, [lastValidPrediction, updateTranslator]);
 
+  // ── Text-to-speech: habla la seña cuando cambia y TTS está activo ──
+  useEffect(() => {
+    if (!ttsEnabled || !lastValidPrediction) return;
+    const text = lastValidPrediction.sign.replace(/_/g, ' ');
+    // No repetir la misma seña consecutivamente
+    if (text === lastSpokenRef.current) return;
+    lastSpokenRef.current = text;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang  = 'es-ES';
+    utt.rate  = 1.1;
+    utt.pitch = 1.0;
+    window.speechSynthesis.speak(utt);
+  }, [lastValidPrediction, ttsEnabled]);
+
   const handleToggle = async () => {
     if (!isCapturing) {
       if (!isActive) await startCamera();
@@ -147,7 +224,13 @@ export const CameraCapture: React.FC = () => {
             <p style={{ fontSize: 13, marginTop: 4 }}>Presiona "Iniciar captura" para activar la cámara</p>
           </div>
         ) : (
-          <video ref={videoRef} autoPlay playsInline muted />
+          <>
+            <video ref={videoRef} autoPlay playsInline muted />
+            <ThirdGrid
+              keypoints={response?.keypoints ?? []}
+              handsCount={response?.hands_count ?? 0}
+            />
+          </>
         )}
 
         {/* Estado de conexión */}
@@ -205,6 +288,44 @@ export const CameraCapture: React.FC = () => {
               </>
             )}
           </button>
+        </div>
+
+        {/* Sección: voz */}
+        <div className="panel-section">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <p className="panel-section-label" style={{ margin: 0 }}>Voz</p>
+            <button
+              onClick={() => {
+                if (ttsEnabled) window.speechSynthesis.cancel();
+                lastSpokenRef.current = null;
+                setTtsEnabled(v => !v);
+              }}
+              title={ttsEnabled ? 'Desactivar voz' : 'Activar voz'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                background: ttsEnabled ? 'rgba(99,102,241,0.20)' : 'rgba(255,255,255,0.06)',
+                color: ttsEnabled ? '#a5b4fc' : 'var(--text-muted)',
+                outline: ttsEnabled ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              {ttsEnabled ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <line x1="23" y1="9" x2="17" y2="15"/>
+                  <line x1="17" y1="9" x2="23" y2="15"/>
+                </svg>
+              )}
+              {ttsEnabled ? 'Activa' : 'Silencio'}
+            </button>
+          </div>
         </div>
 
         {/* Sección: seña detectada */}

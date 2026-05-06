@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from utils.keypoint_utils import (
     normalize_sequence, normalize_hand,
-    SEQUENCE_LEN, KP_TOTAL, KP_PER_HAND
+    SEQUENCE_LEN, KP_TOTAL, KP_HOLISTIC_RAW, KP_PER_HAND
 )
 
 SEQUENCES_DIR  = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
@@ -61,7 +61,9 @@ def preprocesar():
         return
 
     # ── Contar formatos disponibles (informativo) ───────────────
-    formatos = {KP_LEGACY: 0, KP_TOTAL: 0}
+    # sequences/ puede tener 126 (legacy) o 168 (holistic crudo)
+    # sequences_augmented/ tiene 174 (normalizado + zona)
+    formatos = {KP_LEGACY: 0, KP_HOLISTIC_RAW: 0, KP_TOTAL: 0}
     for sena in clases:
         dir_sena = os.path.join(data_dir, sena)
         for archivo in os.listdir(dir_sena):
@@ -71,13 +73,14 @@ def preprocesar():
             if seq.ndim == 2 and seq.shape[1] in formatos:
                 formatos[seq.shape[1]] += 1
 
-    if formatos[KP_LEGACY] == 0 and formatos[KP_TOTAL] == 0:
-        print("❌ No se encontraron secuencias válidas (se esperaba 126 o 168 kp/frame).")
+    if all(v == 0 for v in formatos.values()):
+        print(f"❌ No se encontraron secuencias válidas (se esperaba 126, 168 o 174 kp/frame).")
         return
 
-    print(f"✅ Formato unificado: HOLISTIC {KP_TOTAL} kp/frame")
-    print(f"   Legacy {KP_LEGACY} kp (manos): {formatos[KP_LEGACY]} seqs  →  se rellenan con ceros a {KP_TOTAL}")
-    print(f"   Holistic {KP_TOTAL} kp (manos+cara+hombros): {formatos[KP_TOTAL]} seqs")
+    print(f"✅ Formato de salida: {KP_TOTAL} kp/frame (168 holistic + 6 zona)")
+    print(f"   Legacy {KP_LEGACY} kp (solo manos): {formatos[KP_LEGACY]} seqs")
+    print(f"   Holistic {KP_HOLISTIC_RAW} kp (crudo): {formatos[KP_HOLISTIC_RAW]} seqs")
+    print(f"   Normalizado {KP_TOTAL} kp (aumentado+zona): {formatos[KP_TOTAL]} seqs")
 
     label_map = {label: i for i, label in enumerate(clases)}
     X_all = []
@@ -92,7 +95,7 @@ def preprocesar():
         for archivo in archivos:
             seq = np.load(os.path.join(dir_sena, archivo))
 
-            if seq.ndim != 2 or seq.shape[1] not in (KP_LEGACY, KP_TOTAL):
+            if seq.ndim != 2 or seq.shape[1] not in (KP_LEGACY, KP_HOLISTIC_RAW, KP_TOTAL):
                 continue
             if seq.shape[0] < SEQUENCE_LEN:
                 continue
@@ -102,14 +105,14 @@ def preprocesar():
                 indices = np.linspace(0, seq.shape[0] - 1, SEQUENCE_LEN, dtype=int)
                 seq = seq[indices]
 
-            # Normalizar (solo en secuencias originales, no aumentadas)
+            # Normalizar secuencias crudas (originales, no aumentadas)
             if data_dir == SEQUENCES_DIR:
                 if seq.shape[1] == KP_LEGACY:
-                    seq = normalize_legacy(seq)
-                else:
-                    seq = normalize_sequence(seq)
+                    seq = normalize_legacy(seq)    # → 126 normalizado
+                elif seq.shape[1] == KP_HOLISTIC_RAW:
+                    seq = normalize_sequence(seq)  # 168 crudo → 174
 
-            # Unificar formato: pad 126 kp → 168 kp con ceros en cara/hombros
+            # Pad legacy normalizado (126) → 174 con ceros en cara/hombros/zona
             if seq.shape[1] == KP_LEGACY:
                 padded = np.zeros((seq.shape[0], KP_TOTAL), dtype=np.float32)
                 padded[:, :KP_LEGACY] = seq
@@ -150,7 +153,7 @@ def preprocesar():
     print(f"   X_train: {X_train.shape}")
     print(f"   X_test:  {X_test.shape}")
     print(f"   Clases:  {len(clases)}")
-    print(f"   Formato: Holistic {KP_TOTAL} kp (legacy padded)")
+    print(f"   Formato: {KP_TOTAL} kp/frame (168 holistic + 6 zona)")
     print(f"\n🎯 Siguiente paso: python ai/scripts/entrenar_modelo.py")
 
 

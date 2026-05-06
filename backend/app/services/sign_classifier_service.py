@@ -23,7 +23,8 @@ if not TF_AVAILABLE:
         pass
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'ai'))
-from utils.keypoint_utils import normalize_two_hands, normalize_keypoints, KP_TOTAL, SEQUENCE_LEN
+from utils.keypoint_utils import (normalize_two_hands, normalize_holistic, normalize_keypoints,
+                                   KP_TOTAL, KP_HOLISTIC_RAW, SEQUENCE_LEN)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -179,6 +180,12 @@ class SignClassifierService:
             try:
                 import tensorflow as tf
                 self.keras_model = tf.keras.models.load_model(self.h5_path)
+                # Auto-corregir kp_per_frame desde la forma real del modelo
+                actual_kp = int(self.keras_model.input_shape[-1])
+                if actual_kp != self.kp_per_frame:
+                    print(f"⚠️  model_meta.json dice {self.kp_per_frame} kp/frame, "
+                          f"pero el modelo real usa {actual_kp}. Corrigiendo.")
+                    self.kp_per_frame = actual_kp
                 print("✅ Modelo LSC cargado via Keras (.h5)")
                 return
             except Exception as e:
@@ -209,16 +216,14 @@ class SignClassifierService:
         return deque(maxlen=self.sequence_length)
 
     def add_frame_to_buffer(self, buffer: deque, keypoints: list) -> bool:
-        from utils.keypoint_utils import normalize_two_hands, normalize_holistic
+        # MediaPipe siempre entrega 168 kp crudos (KP_HOLISTIC_RAW).
+        # normalize_holistic los convierte a 174 (KP_TOTAL = 168 + 6 zona).
+        # Para modelos legacy (126 kp) se usa normalize_two_hands.
+        kp = keypoints[:KP_HOLISTIC_RAW] if len(keypoints) > KP_HOLISTIC_RAW else keypoints
 
-        # Compatibilidad: si el modelo fue entrenado con menos kp de los que
-        # ahora llegan (ej. modelo legacy 126 kp vs Holistic 168 kp),
-        # truncamos al tamaño esperado antes de normalizar.
-        kp = keypoints[:self.kp_per_frame] if len(keypoints) > self.kp_per_frame else keypoints
-
-        if len(kp) == KP_TOTAL:          # 168 → modelo nuevo
+        if len(kp) == KP_HOLISTIC_RAW:   # 168 crudos → normaliza a 174
             kp_norm = normalize_holistic(kp)
-        elif len(kp) == 126:             # 126 → modelo legacy (solo manos)
+        elif len(kp) == 126:              # legacy solo manos
             kp_norm = normalize_two_hands(kp)
         else:
             kp_norm = kp
@@ -272,10 +277,14 @@ class SignClassifierService:
         confidence = float(probs[idx])
 
         # Entropía de Shannon normalizada a [0, 1]
+        # Con 1 sola clase log2(1)=0 → división por cero → NaN.
+        # En ese caso la entropía es 0 (certeza perfecta).
         n = len(probs)
-        entropy = float(
-            -np.sum(probs * np.log2(probs + 1e-10)) / np.log2(n)
-        )
+        if n <= 1:
+            entropy = 0.0
+        else:
+            raw = -np.sum(probs * np.log2(probs + 1e-10)) / np.log2(n)
+            entropy = float(raw) if np.isfinite(raw) else 0.0
 
         # Margen: diferencia entre top-1 y top-2 (certeza relativa del ganador)
         sorted_probs = np.sort(probs)[::-1]

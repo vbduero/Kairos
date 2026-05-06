@@ -8,11 +8,13 @@ import numpy as np
 from typing import List
 
 # ── Constantes ────────────────────────────────────────────────
-KP_PER_HAND  = 63    # 21 landmarks × 3 coords
-KP_FACE      = 36    # 12 landmarks × 3 coords
-KP_POSE      = 6     # 2 landmarks (hombros) × 3 coords
-KP_TOTAL     = 168   # KP_PER_HAND*2 + KP_FACE + KP_POSE
-SEQUENCE_LEN = 5     # frames por secuencia
+KP_PER_HAND    = 63    # 21 landmarks × 3 coords
+KP_FACE        = 36    # 12 landmarks × 3 coords
+KP_POSE        = 6     # 2 landmarks (hombros) × 3 coords
+KP_HOLISTIC_RAW = 168  # salida cruda de MediaPipe Holistic
+KP_ZONE        = 6     # muñecas relativas al hombro (3+3)
+KP_TOTAL       = 174   # KP_HOLISTIC_RAW + KP_ZONE
+SEQUENCE_LEN   = 5     # frames por secuencia (5 × 200ms = 1.0 s)
 
 # Índices en el Face Mesh de MediaPipe (468 puntos en total)
 # Seleccionados para capturar expresión facial relevante en LSC
@@ -57,28 +59,46 @@ def normalize_hand(hand_kp: np.ndarray) -> np.ndarray:
     return np.clip(hand_kp, -2.0, 2.0)
 
 
-# ── Normalización completa: manos + cara + hombros ───────────
+# ── Normalización completa: manos + cara + hombros + zona ────
 def normalize_holistic(keypoints_168: list) -> list:
     """
-    Normaliza 168 keypoints:
-      - Manos [0:126]:   cada una relativa a su muñeca, escalada por XY
-      - Cara [126:162]:  relativa a la nariz, escalada por apertura inter-ocular
+    Normaliza 168 keypoints crudos de MediaPipe Holistic y añade
+    6 features de zona (muñecas relativas al punto medio de hombros).
+    Salida: 174 valores.
+
+      - Manos [0:126]:    cada una relativa a su muñeca, escalada por XY
+      - Cara [126:162]:   relativa a la nariz, escalada por apertura inter-ocular
       - Hombros [162:168]: relativos al punto medio, escalados por ancho de hombros
+      - Zona [168:174]:   muñeca1_rel(xyz) + muñeca2_rel(xyz)
+                          relativas al punto medio de hombros, escala = ancho de hombros
     """
-    if len(keypoints_168) != KP_TOTAL:
+    if len(keypoints_168) != KP_HOLISTIC_RAW:
         return keypoints_168
 
     kp = np.array(keypoints_168, dtype=np.float32)
 
-    # Manos
+    # ── Extraer posiciones crudas para zona ANTES de normalizar ──
+    wrist1_raw    = kp[0:3].copy()       # muñeca mano 1 (x,y,z en [0,1])
+    wrist2_raw    = kp[63:66].copy()     # muñeca mano 2
+    shoulder1_raw = kp[162:165].copy()   # hombro 1
+    shoulder2_raw = kp[165:168].copy()   # hombro 2
+
+    shoulder_mid   = (shoulder1_raw + shoulder2_raw) / 2.0
+    shoulder_width = np.linalg.norm(shoulder1_raw[:2] - shoulder2_raw[:2])
+    if shoulder_width < 1e-6:
+        shoulder_width = 0.3             # valor fallback cuando hombros no se detectan
+
+    wrist1_rel = np.clip((wrist1_raw - shoulder_mid) / shoulder_width, -5.0, 5.0)
+    wrist2_rel = np.clip((wrist2_raw - shoulder_mid) / shoulder_width, -5.0, 5.0)
+
+    # ── Normalización local de manos ─────────────────────────────
     hand1 = normalize_hand(kp[:KP_PER_HAND].reshape(21, 3))
     hand2 = normalize_hand(kp[KP_PER_HAND:KP_PER_HAND * 2].reshape(21, 3))
 
-    # Cara: relativa a la nariz (índice 10 en FACE_LANDMARKS_INDICES = punto 4 de Face Mesh)
+    # ── Cara: relativa a la nariz, escalada por apertura inter-ocular ──
     face = kp[KP_PER_HAND * 2:KP_PER_HAND * 2 + KP_FACE].reshape(12, 3)
-    nariz = face[10].copy()          # índice 10 → punto 4 (nariz)
+    nariz = face[10].copy()
     face = face - nariz
-    # Escala: distancia inter-ocular (ojos en índices 4,5 y 6,7 del subarray)
     ojo_der_center = (face[4] + face[5]) / 2
     ojo_izq_center = (face[6] + face[7]) / 2
     inter_ocular = np.linalg.norm(ojo_der_center[:2] - ojo_izq_center[:2])
@@ -86,7 +106,7 @@ def normalize_holistic(keypoints_168: list) -> list:
         face = face / inter_ocular
     face = np.clip(face, -5.0, 5.0)
 
-    # Hombros: relativos al punto medio, escalados por la distancia entre ellos
+    # ── Hombros: relativos al punto medio, escalados por ancho ───
     pose = kp[KP_PER_HAND * 2 + KP_FACE:].reshape(2, 3)
     centro_hombros = pose.mean(axis=0)
     pose = pose - centro_hombros
@@ -97,7 +117,8 @@ def normalize_holistic(keypoints_168: list) -> list:
 
     return np.concatenate([
         hand1.flatten(), hand2.flatten(),
-        face.flatten(), pose.flatten()
+        face.flatten(), pose.flatten(),
+        wrist1_rel, wrist2_rel          # 6 features de zona espacial
     ]).tolist()
 
 
@@ -125,11 +146,9 @@ def normalize_keypoints(keypoints: list) -> list:
 
 
 def normalize_sequence(sequence: np.ndarray) -> np.ndarray:
-    """Normaliza una secuencia completa (SEQUENCE_LEN, KP_TOTAL)."""
-    result = np.zeros_like(sequence)
-    for i in range(sequence.shape[0]):
-        result[i] = normalize_holistic(sequence[i].tolist())
-    return result
+    """Normaliza una secuencia completa (SEQUENCE_LEN, KP_HOLISTIC_RAW) → (SEQUENCE_LEN, KP_TOTAL)."""
+    normalized_frames = [normalize_holistic(sequence[i].tolist()) for i in range(sequence.shape[0])]
+    return np.array(normalized_frames, dtype=np.float32)
 
 
 def augment_sequence(sequence: np.ndarray, n_augmented: int = 5) -> List[np.ndarray]:
@@ -150,7 +169,7 @@ def augment_sequence(sequence: np.ndarray, n_augmented: int = 5) -> List[np.ndar
             new_seq = sequence.copy()
             for f in range(seq_len):
                 frame = new_seq[f]
-                # Espejo solo en las manos (primeros 126)
+                # Espejo en manos (primeros 126): negar X de cada landmark
                 for j in range(0, KP_PER_HAND, 3):
                     frame[j] = -frame[j]
                 for j in range(KP_PER_HAND, KP_PER_HAND * 2, 3):
@@ -158,6 +177,14 @@ def augment_sequence(sequence: np.ndarray, n_augmented: int = 5) -> List[np.ndar
                 hand1 = frame[:KP_PER_HAND].copy()
                 hand2 = frame[KP_PER_HAND:KP_PER_HAND * 2].copy()
                 new_seq[f][:KP_PER_HAND * 2] = np.concatenate([hand2, hand1])
+                # Espejo en features de zona [168:174]: negar X, intercambiar muñecas
+                if frame.shape[0] == KP_TOTAL:
+                    w1 = frame[KP_HOLISTIC_RAW:KP_HOLISTIC_RAW + 3].copy()
+                    w2 = frame[KP_HOLISTIC_RAW + 3:KP_HOLISTIC_RAW + 6].copy()
+                    w1[0] = -w1[0]
+                    w2[0] = -w2[0]
+                    new_seq[f][KP_HOLISTIC_RAW:KP_HOLISTIC_RAW + 3] = w2
+                    new_seq[f][KP_HOLISTIC_RAW + 3:KP_HOLISTIC_RAW + 6] = w1
         elif transform == 3:
             new_seq = sequence.copy()
             idx = np.random.randint(1, seq_len - 1)
