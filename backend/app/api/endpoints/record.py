@@ -91,13 +91,13 @@ async def save_sample(req: SampleRequest):
     sign = req.sign.strip().lower()
     if not sign:
         raise HTTPException(400, "Nombre de seña vacío")
-    if len(req.frames) != 5:
-        raise HTTPException(400, f"Se necesitan 5 frames, recibidos: {len(req.frames)}")
+    from utils.keypoint_utils import KP_HOLISTIC_RAW, SEQUENCE_LEN
+
+    if len(req.frames) != SEQUENCE_LEN:
+        raise HTTPException(400, f"Se necesitan {SEQUENCE_LEN} frames, recibidos: {len(req.frames)}")
 
     from app.api.endpoints.websocket import get_mediapipe_servicio
     mp = get_mediapipe_servicio()
-
-    from utils.keypoint_utils import KP_HOLISTIC_RAW
 
     frames_kp: list = []
     for b64 in req.frames:
@@ -112,10 +112,10 @@ async def save_sample(req: SampleRequest):
         if any(abs(v) > 1e-6 for v in f[:6])  # muñeca no-cero → hay mano
     )
     if frames_with_hand == 0:
-        raise HTTPException(422, "No se detectó ninguna mano en los 5 frames. Coloca la mano en el encuadre.")
+        raise HTTPException(422, f"No se detectó ninguna mano en los {SEQUENCE_LEN} frames. Coloca la mano en el encuadre.")
 
     # Guardar raw 168 kp — misma forma que recolectar_datos.py
-    seq = np.array(frames_kp, dtype=np.float32)   # (5, 168)
+    seq = np.array(frames_kp, dtype=np.float32)   # (SEQUENCE_LEN, 168)
 
     sign_dir = SEQUENCES_DIR / sign
     sign_dir.mkdir(parents=True, exist_ok=True)

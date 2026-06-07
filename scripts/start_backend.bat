@@ -1,4 +1,4 @@
-@echo off
+5@echo off
 title BACKEND - MQH
 
 chcp 65001 > nul

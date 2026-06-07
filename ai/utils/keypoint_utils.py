@@ -14,7 +14,7 @@ KP_POSE        = 6     # 2 landmarks (hombros) × 3 coords
 KP_HOLISTIC_RAW = 168  # salida cruda de MediaPipe Holistic
 KP_ZONE        = 6     # muñecas relativas al hombro (3+3)
 KP_TOTAL       = 174   # KP_HOLISTIC_RAW + KP_ZONE
-SEQUENCE_LEN   = 5     # frames por secuencia (5 × 200ms = 1.0 s)
+SEQUENCE_LEN   = 20    # frames por secuencia (20 × 100ms = 2.0 s)
 
 # Índices en el Face Mesh de MediaPipe (468 puntos en total)
 # Seleccionados para capturar expresión facial relevante en LSC

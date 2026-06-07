@@ -49,7 +49,7 @@ VOCABULARIO = [
 ]
 
 MUESTRAS_POR_SENA = 50
-FRAME_INTERVAL_MS = 200   # ms entre frames → 8 × 200 = 1.6 s de grabación
+FRAME_INTERVAL_MS = 100   # ms entre frames → 20 × 100 = 2.0 s de grabación
 SEQUENCES_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
 ANCHO = 58  # ancho interior del cuadro
 

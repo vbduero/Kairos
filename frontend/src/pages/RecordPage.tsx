@@ -10,8 +10,8 @@ import { useWebSocket } from '../hooks/useWebSocket';
 
 const API            = 'http://localhost:8000/api/v1';
 const TARGET_SAMPLES = 50;
-const FRAMES_PER_SEQ = 5;
-const FRAME_GAP_MS   = 160;   // ~6 fps de captura, igual que el script (200 ms)
+const FRAMES_PER_SEQ = 20;
+const FRAME_GAP_MS   = 100;   // 10 fps de captura, igual que el script (100 ms)
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
