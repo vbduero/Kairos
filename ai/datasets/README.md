@@ -1,6 +1,6 @@
 # Dataset de Señas LSC (Fase 2A)
 
-Este directorio contiene el dataset de entrenamiento para el clasificador de señas de **Manos que Hablan**.
+Este directorio contiene el dataset de entrenamiento para el clasificador de señas de **Kairos**.
 
 ## Estructura del Dataset
 

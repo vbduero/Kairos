@@ -35,6 +35,15 @@ def normalize_legacy(seq: np.ndarray) -> np.ndarray:
         result[i] = np.concatenate([h1.flatten(), h2.flatten()])
     return result
 
+def add_velocity_to_sequence(seq: np.ndarray) -> np.ndarray:
+    """
+    Toma una secuencia de forma (N, M) y retorna (N, M*2)
+    concatenando la posición actual con la velocidad (frame actual - anterior).
+    """
+    vel = np.zeros_like(seq)
+    vel[1:] = seq[1:] - seq[:-1]
+    return np.concatenate([seq, vel], axis=1)
+
 
 def preprocesar():
     print("🔍 Iniciando preprocesamiento de secuencias...\n")
@@ -77,10 +86,10 @@ def preprocesar():
         print(f"❌ No se encontraron secuencias válidas (se esperaba 126, 168 o 174 kp/frame).")
         return
 
-    print(f"✅ Formato de salida: {KP_TOTAL} kp/frame (168 holistic + 6 zona)")
-    print(f"   Legacy {KP_LEGACY} kp (solo manos): {formatos[KP_LEGACY]} seqs")
-    print(f"   Holistic {KP_HOLISTIC_RAW} kp (crudo): {formatos[KP_HOLISTIC_RAW]} seqs")
-    print(f"   Normalizado {KP_TOTAL} kp (aumentado+zona): {formatos[KP_TOTAL]} seqs")
+    print(f"✅ Formato de salida: {KP_TOTAL*2} kp/frame ({KP_TOTAL} pos + {KP_TOTAL} vel)")
+    print(f"   Legacy {KP_LEGACY} kp (solo manos): {formatos.get(KP_LEGACY, 0)} seqs")
+    print(f"   Holistic {KP_HOLISTIC_RAW} kp (crudo): {formatos.get(KP_HOLISTIC_RAW, 0)} seqs")
+    print(f"   Normalizado {KP_TOTAL} kp (aumentado+zona): {formatos.get(KP_TOTAL, 0)} seqs")
 
     label_map = {label: i for i, label in enumerate(clases)}
     X_all = []
@@ -118,6 +127,10 @@ def preprocesar():
                 padded[:, :KP_LEGACY] = seq
                 seq = padded
 
+            # Añadir Velocidad: 174 -> 348
+            if seq.shape[1] == KP_TOTAL:
+                seq = add_velocity_to_sequence(seq)
+
             X_all.append(seq)
             y_all.append(label_map[sena])
             cargadas += 1
@@ -153,7 +166,7 @@ def preprocesar():
     print(f"   X_train: {X_train.shape}")
     print(f"   X_test:  {X_test.shape}")
     print(f"   Clases:  {len(clases)}")
-    print(f"   Formato: {KP_TOTAL} kp/frame (168 holistic + 6 zona)")
+    print(f"   Formato: {KP_TOTAL*2} kp/frame (pos + vel)")
     print(f"\n🎯 Siguiente paso: python ai/scripts/entrenar_modelo.py")
 
 

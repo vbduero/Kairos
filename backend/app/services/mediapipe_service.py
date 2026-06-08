@@ -74,10 +74,18 @@ class MediaPipeService:
 
         array  = np.frombuffer(imagen_bytes, dtype=np.uint8)
         imagen = cv2.imdecode(array, cv2.IMREAD_COLOR)
-        if imagen is None:
-            return None
+        # ── Reducción de resolución para VELOCIDAD EXTREMA ───────────
+        # Bajar la resolución a 320x240 (o similar) reduce el área de 
+        # píxeles a la cuarta parte, haciendo que Holistic vuele en CPU.
+        # Como los keypoints salen normalizados [0..1], no afecta la IA.
+        imagen_pequena = cv2.resize(imagen, (320, 240), interpolation=cv2.INTER_AREA)
 
-        imagen_rgb = cv2.cvtColor(imagen, cv2.COLOR_BGR2RGB)
+        # ── Mejora de contraste (CLAHE) para ayudar a la IA ──────────
+        imagen_yuv = cv2.cvtColor(imagen_pequena, cv2.COLOR_BGR2YUV)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        imagen_yuv[:, :, 0] = clahe.apply(imagen_yuv[:, :, 0])
+        imagen_rgb = cv2.cvtColor(imagen_yuv, cv2.COLOR_YUV2RGB)
+        
         resultado  = self._holistic.process(imagen_rgb)
 
         # Sin ninguna mano → sin dato
@@ -115,8 +123,10 @@ class MediaPipeService:
         keypoints = kp_mano1 + kp_mano2 + kp_cara + kp_pose  # 63+63+36+6=168
 
         tiempo_ms = (time.time() - inicio) * 1000
-        if tiempo_ms > 120:
-            print(f"⚠️  Holistic lento: {tiempo_ms:.0f} ms")
+        if tiempo_ms > 250:
+            h, w = imagen.shape[:2]
+            # Solo avisamos si el frame tardó más de 250ms (micro-corte)
+            # print(f"⚠️  Holistic lento: {tiempo_ms:.0f} ms (size={w}x{h})")
 
         return keypoints
 

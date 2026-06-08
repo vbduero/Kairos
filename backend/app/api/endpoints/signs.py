@@ -1,7 +1,6 @@
 # ============================================================
 #  Endpoint REST — Vocabulario LSC
 #  GET /api/v1/signs            → lista vocabulario disponible
-#  GET /api/v1/signs/{sign}/sequence → secuencia de animación
 # ============================================================
 
 from fastapi import APIRouter, HTTPException
@@ -30,13 +29,6 @@ class SignResponse(BaseModel):
     category: Optional[str] = None
     description: Optional[str] = None
     available: bool = False   # True si hay secuencias grabadas
-
-class SequenceResponse(BaseModel):
-    sign: str
-    frames: list[list[float]]   # shape: [15][126]
-    fps: int = 5
-    total_frames: int
-
 
 # ── Vocabulario con metadatos ─────────────────────────────
 _VOCAB_META = [
@@ -91,46 +83,3 @@ async def listar_señas():
     return resultado
 
 
-@router.get("/signs/{sign}/sequence", response_model=SequenceResponse)
-async def obtener_secuencia(sign: str):
-    """
-    Retorna una secuencia de frames para animar el esqueleto 3D del avatar.
-    Cada frame tiene 126 floats (21 landmarks × 3 coords × 2 manos).
-    Se elige una secuencia aleatoria entre las disponibles para variedad.
-    """
-    dir_sena = os.path.join(SEQUENCES_DIR, sign.lower())
-
-    if not os.path.isdir(dir_sena):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Seña '{sign}' no encontrada. Verifica el vocabulario disponible en /api/v1/signs"
-        )
-
-    archivos = [f for f in os.listdir(dir_sena) if f.endswith('.npy')]
-    if not archivos:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No hay secuencias grabadas para '{sign}'. Usa recolectar_datos.py para grabarlas."
-        )
-
-    # Elige una secuencia aleatoria (variedad visual)
-    archivo = random.choice(archivos)
-    ruta = os.path.join(dir_sena, archivo)
-
-    try:
-        seq = np.load(ruta)   # shape: (frames, 126) o (frames, 168)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al cargar secuencia: {e}")
-
-    if seq.ndim != 2 or seq.shape[1] not in (126, 168):
-        raise HTTPException(
-            status_code=500,
-            detail=f"Formato inválido: se esperaba (N, 126|168), se obtuvo {seq.shape}"
-        )
-
-    return SequenceResponse(
-        sign=sign,
-        frames=seq.tolist(),
-        fps=5,
-        total_frames=len(seq),
-    )

@@ -10,15 +10,15 @@ from typing import List
 
 class Settings(BaseSettings):
     # App
-    APP_NAME: str = "Manos que Hablan"
+    APP_NAME: str = "Kairos"
     DEBUG: bool = True
     SECRET_KEY: str = "dev-key-cambiar-en-produccion"
 
     # Base de datos — variables individuales
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "manos_que_hablan"
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/manos_que_hablan"
+    POSTGRES_DB: str = "kairos"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./sqlite.db"
 
     # CORS: qué dominios pueden hablar con el backend
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]

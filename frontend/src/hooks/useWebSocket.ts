@@ -96,9 +96,11 @@ export const useWebSocket = (): UseWebSocketReturn => {
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    // Limitar a 640×480: resoluciones mayores no mejoran MediaPipe y aumentan latencia
-    canvas.width  = Math.min(videoElement.videoWidth  || 640, 640);
-    canvas.height = Math.min(videoElement.videoHeight || 480, 480);
+    // Reducir la resolución a 320x240 en el origen:
+    // Un JPEG más pequeño viaja por la red casi instantáneamente (1-2 ms) y el backend 
+    // lo decodifica muchísimo más rápido, eliminando el lag de transferencia.
+    canvas.width  = Math.min(videoElement.videoWidth  || 320, 320);
+    canvas.height = Math.min(videoElement.videoHeight || 240, 240);
 
     const sendFrame = () => {
       if (wsRef.current?.readyState !== WebSocket.OPEN) return;
@@ -116,7 +118,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
             && wsRef.current.bufferedAmount === 0) {
           wsRef.current.send(blob);
         }
-      }, 'image/jpeg', 0.80);
+      }, 'image/jpeg', 0.50); // Calidad 50%: reduce drásticamente el peso en KB sin afectar los keypoints
     };
 
     intervalRef.current = setInterval(sendFrame, 50);  // 20 fps estable

@@ -1,5 +1,5 @@
 -- ============================================================
---  Manos que Hablan — Inicialización de base de datos
+--  Kairos — Inicialización de base de datos
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

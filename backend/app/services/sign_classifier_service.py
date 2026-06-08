@@ -228,7 +228,17 @@ class SignClassifierService:
         else:
             kp_norm = kp
 
-        buffer.append(kp_norm)
+        # ── Añadir Velocidad (Solo si el modelo la espera) ──
+        if self.kp_per_frame == KP_TOTAL * 2:  # Espera 348 (174 pos + 174 vel)
+            if len(buffer) == 0:
+                vel = [0.0] * len(kp_norm)
+            else:
+                prev_kp_norm = buffer[-1][:len(kp_norm)]
+                vel = [curr - prev for curr, prev in zip(kp_norm, prev_kp_norm)]
+            buffer.append(kp_norm + vel)
+        else:
+            buffer.append(kp_norm)
+
         return len(buffer) >= self.sequence_length
 
     # ── Predicción desde buffer completo ─────────────────────────

@@ -78,7 +78,7 @@ def test_configuracion():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  Manos que Hablan — Test de Modelos")
+    print("  Kairos — Test de Modelos")
     print("=" * 50)
 
     resultados = [

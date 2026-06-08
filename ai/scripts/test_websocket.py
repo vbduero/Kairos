@@ -102,7 +102,7 @@ async def run_async_tests():
 
 if __name__ == "__main__":
     print("=" * 55)
-    print("  Manos que Hablan — Test WebSocket + REST")
+    print("  Kairos — Test WebSocket + REST")
     print("=" * 55)
     print("⚠️  Asegúrate de tener el servidor corriendo:")
     print("   uvicorn app.main:app --reload --port 8000\n")

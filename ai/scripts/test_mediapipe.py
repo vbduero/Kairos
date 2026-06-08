@@ -100,7 +100,7 @@ def test_5_rendimiento():
 
 if __name__ == "__main__":
     print("=" * 55)
-    print("  Manos que Hablan — Test Servicio MediaPipe")
+    print("  Kairos — Test Servicio MediaPipe")
     print("=" * 55)
 
     resultados = [

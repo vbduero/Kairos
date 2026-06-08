@@ -367,7 +367,7 @@ def mostrar_cabecera(conteos=None, completas=None):
     barra = barra_progreso(completas, len(VOCABULARIO), largo=24)
 
     print(f"\n{CY}╔{'═' * ANCHO}╗{R}")
-    titulo = "MANOS QUE HABLAN — RECOLECCIÓN LSC"
+    titulo = "KAIROS — RECOLECCIÓN LSC"
     sub    = f"2 manos · {SEQUENCE_LEN} frames · 174 keypoints + zona"
     print(f"{CY}║{R}{B}{titulo:^{ANCHO}}{R}{CY}║{R}")
     print(f"{CY}║{R}{DM}{sub:^{ANCHO}}{R}{CY}║{R}")

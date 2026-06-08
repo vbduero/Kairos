@@ -2,77 +2,65 @@ import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 
 const LINKS = [
-  { to: '/',       label: 'Traductor',     end: true  },
-  { to: '/avatar', label: 'Avatar LSC',    end: false },
-  { to: '/grabar', label: 'Contribuir',    end: false },
-  { to: '/about',  label: 'Nosotros',      end: false },
+  { to: '/',       label: 'Aprender Señas', end: true  },
+  { to: '/grabar', label: 'Juego de Datos', end: false },
 ];
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   return (
-    <div className="fixed top-5 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
+    <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
       <nav
         className={`
-          pointer-events-auto flex items-center justify-between gap-10 px-5 py-2.5
-          rounded-2xl border backdrop-blur-2xl transition-all duration-300
+          pointer-events-auto flex items-center justify-between gap-8 px-6 py-3
+          rounded-[32px] transition-all duration-300
           ${scrolled
-            ? 'bg-[#07090f]/90 border-white/[0.12] shadow-[0_12px_40px_rgba(0,0,0,0.55)]'
-            : 'bg-[#07090f]/70 border-white/[0.07] shadow-[0_8px_24px_rgba(0,0,0,0.35)]'}
+            ? 'bg-white border-[#005B96]/10 shadow-[0_12px_36px_rgba(0,91,150,0.12)] border'
+            : 'bg-white/80 backdrop-blur-md shadow-[0_8px_24px_rgba(0,91,150,0.06)] border border-transparent'}
         `}
       >
 
-        {/* ── Logo ── */}
-        <NavLink to="/" className="flex items-center gap-2.5 shrink-0 group">
-          <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#6366f1] to-[#a855f7] flex items-center justify-center shadow-[0_0_18px_rgba(99,102,241,0.55)] transition-all duration-300 group-hover:shadow-[0_0_26px_rgba(168,85,247,0.7)] group-hover:scale-110">
-            <span className="text-white font-black text-[9px] tracking-wider select-none">MH</span>
-          </div>
-          <span className="font-semibold text-sm text-white tracking-tight hidden sm:block select-none">
-            Manos que Hablan
-          </span>
-        </NavLink>
+        {/* ── Brand / Logo ── */}
+        <div className="flex items-center gap-3 mr-4 select-none">
+           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#logo-gradient)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+             <defs>
+               <linearGradient id="logo-gradient" x1="0" y1="0" x2="24" y2="24">
+                 <stop offset="0%" stopColor="#00C9A7" />
+                 <stop offset="100%" stopColor="#005B96" />
+               </linearGradient>
+             </defs>
+             <path d="M12 2L2 7l10 5 10-5-10-5z" />
+             <path d="M2 17l10 5 10-5" />
+             <path d="M2 12l10 5 10-5" />
+           </svg>
+           <span className="text-[#0A1F44] text-xl font-black tracking-tight" style={{ fontFamily: 'Nunito, sans-serif' }}>KAIROS</span>
+        </div>
 
         {/* ── Links ── */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-2">
           {LINKS.map(({ to, label, end }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
               className={({ isActive }) =>
-                `relative px-4 py-2 text-sm font-medium rounded-xl transition-colors duration-200 group select-none
-                 ${isActive ? 'text-white' : 'text-[#6b7280] hover:text-white'}`
+                `relative px-6 py-2.5 text-[15px] font-extrabold rounded-full transition-all duration-300 ease-out select-none
+                 ${isActive 
+                    ? 'text-white bg-[#00C9A7] shadow-[0_4px_12px_rgba(0,201,167,0.4)] transform scale-105' 
+                    : 'text-[#475569] hover:text-[#005B96] hover:bg-[#F0F9FF] hover:scale-105'}`
               }
             >
-              {({ isActive }) => (
-                <>
-                  {label}
-                  {/* Underline slide-in */}
-                  <span
-                    className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-[2px] rounded-full
-                      bg-gradient-to-r from-[#6366f1] to-[#a855f7]
-                      transition-all duration-300 ease-out
-                      ${isActive ? 'w-[60%] opacity-100' : 'w-0 opacity-0 group-hover:w-[60%] group-hover:opacity-100'}`}
-                  />
-                </>
-              )}
+              {label}
             </NavLink>
           ))}
         </div>
-
-        {/* ── CTA badge ── */}
-        <div className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white text-[#07090f] text-sm font-semibold shadow-sm select-none cursor-default">
-          <span className="w-2 h-2 rounded-full bg-[#10b981] inline-block animate-pulse" />
-          Beta v1.0
-        </div>
-
       </nav>
     </div>
   );

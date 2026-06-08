@@ -1,5 +1,5 @@
 # ============================================================
-#  Manos que Hablan — Punto de entrada del backend
+#  Kairos — Punto de entrada del backend
 #  FastAPI arranca desde aquí.
 # ============================================================
 
@@ -32,7 +32,7 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {
-        "mensaje": "Manos que Hablan API funcionando ✅",
+        "mensaje": "Kairos API funcionando ✅",
         "version": "0.1.0",
         "docs": "/docs"
     }

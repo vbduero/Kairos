@@ -1,11 +1,15 @@
-"""
-Splash animado para las consolas de Manos que Hablan.
-Uso: python scripts/splash.py [backend|frontend]
+"""Splash animation for Kairos console scripts with new colour palette.
+
+Uses the shared `style_utils` module for colour handling and the gradient logo.
 """
 import sys
 import time
 import os
+import pathlib
+# Import shared style utilities
+import style_utils as su
 
+# Ensure ANSI support on Windows
 if sys.platform == "win32":
     import ctypes
     kernel32 = ctypes.windll.kernel32
@@ -23,23 +27,8 @@ RD = "\033[91m"
 MG = "\033[95m"
 BG_DK = "\033[40m"
 
-# ── ASCII art (mano con lenguaje de señas) ────────────────
-MANO = r"""
-        .-. .-.  .-.
-       | | | |  | |
-       | | | |  | |
-    .--' '-' '--' '--.
-   |  ,-.   ,--.   |
-   | / _ \ / __ \  |
-   || (_) || |  | | |
-   | \___/ | |__| | |
-   |        \____/  |
-    \               /
-     \    MANOS    /
-      \    QUE    /
-       \  HABLAN /
-        `-------'
-"""
+# Logo will be rendered by `style_utils.print_logo()`
+# The original hand ASCII art has been removed.
 
 # Frames del spinner braille
 SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -81,11 +70,7 @@ def barra_carga(color=CY, largo=40, delay=0.03):
     print()
 
 
-def splash_mano(color):
-    lineas = MANO.split("\n")
-    for linea in lineas:
-        print(f"  {color}{linea}{RS}")
-        time.sleep(0.035)
+# Removed old hand animation function; logo rendered via style_utils.print_logo()
 
 
 def main():
@@ -121,12 +106,12 @@ def main():
     limpiar()
 
     # Mano animada
-    splash_mano(color)
+    su.print_logo()
     time.sleep(0.1)
 
     # Cabecera
     print(f"\n  {color}{'═' * ancho}{RS}")
-    typewriter(f"MANOS QUE HABLAN  —  {titulo}", color=BD + color, delay=0.025)
+    typewriter(f"KAIROS  —  {titulo}", color=BD + color, delay=0.025)
     print(f"  {DM}{subtit:^{ancho}}{RS}")
     print(f"  {color}{'═' * ancho}{RS}\n")
     time.sleep(0.2)

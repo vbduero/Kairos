@@ -8,6 +8,7 @@ pydantic-settings==2.2.1
 # Base de datos
 sqlalchemy==2.0.30
 asyncpg==0.29.0
+
 aiosqlite==0.20.0
 alembic==1.13.1
 
@@ -15,12 +16,12 @@ alembic==1.13.1
 websockets==12.0
 
 # IA / Vision
-mediapipe==0.10.14
+mediapipe>=0.10.14
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
 
 # TensorFlow
-tensorflow-cpu==2.17.0
+tensorflow-cpu>=2.17.0
 h5py>=3.10.0
 
 # NLP

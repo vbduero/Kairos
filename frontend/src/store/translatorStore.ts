@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 
-// Estado compartido entre CameraCapture y AvatarContainer.
-// CameraCapture escribe → AvatarContainer lee.
+// Estado compartido para la traducción en tiempo real.
 interface TranslatorState {
   // 126 floats crudos de MediaPipe (mano1[0..62] + mano2[63..125]).
   // Array vacío = sin mano detectada.

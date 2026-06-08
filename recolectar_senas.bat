@@ -1,5 +1,5 @@
 @echo off
-title Manos que Hablan - Recoleccion LSC
+title Kairos - Recoleccion LSC
 
 cd /d "%~dp0"
 set PYTHON=backend\venv\Scripts\python.exe
