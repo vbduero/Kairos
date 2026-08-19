@@ -26,10 +26,10 @@ TARGET_SAMPLES = 50   # mismo que MUESTRAS_POR_SENA en el script
 
 # Vocabulario idéntico al de recolectar_datos.py
 VOCABULARIO: List[str] = [
-    "hola", "adios", "gracias", "por favor", "si",
-    "no", "ayuda", "agua", "casa", "familia",
-    "trabajo", "escuela", "comer", "dormir", "bano",
-    "doctor", "policia", "emergencia", "nombre", "como estas",
+    "hola", "como estas", "bien", "mal", "gracias", "por favor", 
+    "permiso", "no se", "otra vez", "si", "no", "pregunta", "ayuda", 
+    "espere", "leer", "escribir", "tarea", "hoy", "manana", "ayer", 
+    "clase", "profesor", "adios",
     "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
     "n", "ñ", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
 ]

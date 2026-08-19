@@ -40,16 +40,16 @@ BL = "\033[94m"         # azul
 DM = "\033[2m"          # dim/gris
 
 VOCABULARIO = [
-    "hola", "adios", "gracias", "por favor", "si",
-    "no", "ayuda", "agua", "casa", "familia",
-    "trabajo", "escuela", "comer", "dormir", "bano",
-    "doctor", "policia", "emergencia", "nombre", "como estas",
+    "hola", "como estas", "bien", "mal", "gracias", "por favor", 
+    "permiso", "no se", "otra vez", "si", "no", "pregunta", "ayuda", 
+    "espere", "leer", "escribir", "tarea", "hoy", "manana", "ayer", 
+    "clase", "profesor", "adios",
     "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
     "n", "ñ", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
 ]
 
 MUESTRAS_POR_SENA = 50
-FRAME_INTERVAL_MS = 100   # ms entre frames → 20 × 100 = 2.0 s de grabación
+FRAME_INTERVAL_MS = 50    # ms entre frames → 40 × 50 = 2.0 s de grabación
 SEQUENCES_DIR = os.path.join(os.path.dirname(__file__), '../datasets/sequences')
 ANCHO = 58  # ancho interior del cuadro
 
@@ -316,6 +316,75 @@ def dibujar_zona_activa(frame: np.ndarray, kp_raw: list | None) -> np.ndarray:
 
     return frame
 
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17)
+]
+
+def dibujar_esqueleto_holografico(frame: np.ndarray, kp_raw: list | None) -> np.ndarray:
+    if not kp_raw or len(kp_raw) < 126:
+        return frame
+
+    h, w = frame.shape[:2]
+    overlay = frame.copy()
+
+    def draw_hand(kp_array, primary_color, secondary_color):
+        if len(kp_array) < 63 or (kp_array[0] == 0 and kp_array[1] == 0):
+            return
+
+        points = []
+        for i in range(21):
+            px = int(kp_array[i * 3] * w)
+            py = int(kp_array[i * 3 + 1] * h)
+            points.append((px, py))
+
+        for start_idx, end_idx in HAND_CONNECTIONS:
+            cv2.line(overlay, points[start_idx], points[end_idx], primary_color, 10, cv2.LINE_AA)
+
+    hand1 = kp_raw[0:63]
+    hand2 = kp_raw[63:126]
+    
+    draw_hand(hand1, (233, 165, 14), (199, 132, 2))
+    draw_hand(hand2, (129, 185, 16), (105, 150, 5))
+    
+    frame = cv2.addWeighted(overlay, 0.25, frame, 0.75, 0)
+
+    def draw_hand_details(kp_array, primary_color, secondary_color):
+        if len(kp_array) < 63 or (kp_array[0] == 0 and kp_array[1] == 0):
+            return
+            
+        points = []
+        for i in range(21):
+            px = int(kp_array[i * 3] * w)
+            py = int(kp_array[i * 3 + 1] * h)
+            points.append((px, py))
+
+        for start_idx, end_idx in HAND_CONNECTIONS:
+            cv2.line(frame, points[start_idx], points[end_idx], (255, 255, 255), 2, cv2.LINE_AA)
+
+        for idx, p in enumerate(points):
+            is_fingertip = idx in [4, 8, 12, 16, 20]
+            is_wrist = idx == 0
+
+            if is_fingertip:
+                cv2.circle(frame, p, 4, primary_color, -1, cv2.LINE_AA)
+                cv2.circle(frame, p, 8, primary_color, 2, cv2.LINE_AA)
+            elif is_wrist:
+                cv2.circle(frame, p, 6, (255, 255, 255), -1, cv2.LINE_AA)
+                cv2.circle(frame, p, 6, secondary_color, 3, cv2.LINE_AA)
+            else:
+                cv2.circle(frame, p, 4, (255, 255, 255), -1, cv2.LINE_AA)
+                cv2.circle(frame, p, 4, secondary_color, 2, cv2.LINE_AA)
+
+    draw_hand_details(hand1, (233, 165, 14), (199, 132, 2))
+    draw_hand_details(hand2, (129, 185, 16), (105, 150, 5))
+
+    return frame
+
 
 # ── Utilidades de UI ──────────────────────────────────────
 
@@ -489,9 +558,10 @@ def grabar_sena(service, cap, sena, camara_auto: 'CamaraAuto'):
             if np.any(np.abs(kp_arr[KP_PER_HAND:KP_PER_HAND * 2]) > 1e-6):
                 n_manos += 1
 
-        # Regla de tercios + zona activa
+        # Regla de tercios + zona activa + esqueleto holografico
         frame = dibujar_tercios(frame)
         frame = dibujar_zona_activa(frame, kp_prev)
+        frame = dibujar_esqueleto_holografico(frame, kp_prev)
 
         if n_manos == 2:
             borde_color = (0, 220, 0)
@@ -560,6 +630,11 @@ def grabar_sena(service, cap, sena, camara_auto: 'CamaraAuto'):
                 frame, _, _ = camara_auto.procesar(frame)
                 progress = int((f_idx + 1) / SEQUENCE_LEN * 100)
 
+                _, buffer = cv2.imencode('.jpg', frame)
+                keypoints = service.procesar_frame(buffer.tobytes())
+
+                frame = dibujar_esqueleto_holografico(frame, keypoints)
+
                 hr, wr = frame.shape[:2]
                 cv2.rectangle(frame, (0, 0), (wr - 1, hr - 1), (0, 0, 255), 5)
                 cv2.putText(frame, f"GRABANDO {progress}%", (180, 40),
@@ -567,9 +642,6 @@ def grabar_sena(service, cap, sena, camara_auto: 'CamaraAuto'):
                 cv2.putText(frame, sena.upper(), (220, 80),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
                 cv2.imshow("Recoleccion LSC", frame)
-
-                _, buffer = cv2.imencode('.jpg', frame)
-                keypoints = service.procesar_frame(buffer.tobytes())
 
                 # MediaPipe devuelve 168 kp crudos (KP_HOLISTIC_RAW)
                 if keypoints and len(keypoints) == KP_HOLISTIC_RAW:

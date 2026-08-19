@@ -8,6 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 
 
+from app.core.database import engine, Base
+from app.models import Sign, Translation, RecognizedSign, AppUsage, ConstructedPhrase, FailedAttempt, TeacherResponse
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="API para traducción bidireccional de Lenguaje de Señas Colombiano",
@@ -15,6 +18,12 @@ app = FastAPI(
     docs_url="/docs",       # Documentación automática en /docs
     redoc_url="/redoc",     # Documentación alternativa en /redoc
 )
+
+@app.on_event("startup")
+async def startup_event():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
 
 # ── CORS ──────────────────────────────────────────────────
 # Sin esto, el navegador bloquea las peticiones del frontend
@@ -45,7 +54,8 @@ async def health_check():
 
 
 # ── Routers ───────────────────────────────────────────────
-from app.api.endpoints import signs, websocket, record
+from app.api.endpoints import signs, websocket, record, stats
 app.include_router(signs.router, prefix="/api/v1")
 app.include_router(websocket.router)
 app.include_router(record.router)
+app.include_router(stats.router, prefix="/api/v1")

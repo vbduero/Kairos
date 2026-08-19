@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useCamera } from '../../hooks/useCamera';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { Camera } from 'lucide-react';
+import { statsService } from '../../services/statsService';
 
 const HAND_CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -12,68 +14,125 @@ const HAND_CONNECTIONS = [
 ];
 
 const SkeletonOverlay: React.FC<{ keypoints: number[] }> = ({ keypoints }) => {
-  if (!keypoints || keypoints.length === 0) return null;
-  const hand1 = keypoints.slice(0, 63);
-  const hand2 = keypoints.slice(63, 126);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const renderHand = (handKp: number[], color: string) => {
-    if (handKp[0] === 0 && handKp[1] === 0) return null;
-    const points = [];
-    for (let i = 0; i < 21; i++) {
-      const z = handKp[i * 3 + 2];
-      const radius = Math.max(3, Math.min(8, 5 - (z * 40)));
-      points.push({
-        x: handKp[i * 3] * 100,
-        y: handKp[i * 3 + 1] * 100,
-        r: radius,
-        isFingertip: [4, 8, 12, 16, 20].includes(i)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set actual canvas resolution to match its display size for crisp rendering
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    const { width, height } = canvas;
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (!keypoints || keypoints.length === 0) return;
+
+    const hand1 = keypoints.slice(0, 63);
+    const hand2 = keypoints.slice(63, 126);
+
+    const drawHand = (handKp: number[], primaryColor: string, secondaryColor: string) => {
+      if (handKp[0] === 0 && handKp[1] === 0) return;
+      
+      const points: {x: number, y: number, z: number}[] = [];
+      for (let i = 0; i < 21; i++) {
+        points.push({
+          x: handKp[i * 3] * width,
+          y: handKp[i * 3 + 1] * height,
+          z: handKp[i * 3 + 2]
+        });
+      }
+
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // 1. Dibujar resplandor exterior (hueso ancho y semitransparente)
+      ctx.beginPath();
+      HAND_CONNECTIONS.forEach(([start, end]) => {
+        ctx.moveTo(points[start].x, points[start].y);
+        ctx.lineTo(points[end].x, points[end].y);
       });
-    }
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 10;
+      ctx.globalAlpha = 0.25;
+      ctx.stroke();
 
-    return (
-      <g>
-        {HAND_CONNECTIONS.map(([start, end], idx) => (
-          <line
-            key={`bone-${idx}`}
-            x1={`${points[start].x}%`} y1={`${points[start].y}%`}
-            x2={`${points[end].x}%`}   y2={`${points[end].y}%`}
-            stroke={color} strokeWidth={points[end].r * 1.2} strokeOpacity="0.8" strokeLinecap="round"
-          />
-        ))}
-        {points.map((p, idx) => !p.isFingertip && (
-          <circle
-            key={`joint-${idx}`}
-            cx={`${p.x}%`} cy={`${p.y}%`}
-            r={p.r} fill="#FFFFFF" stroke={color} strokeWidth="2"
-          />
-        ))}
-        {points.map((p, idx) => p.isFingertip && (
-          <circle
-            key={`tip-${idx}`}
-            cx={`${p.x}%`} cy={`${p.y}%`}
-            r={p.r + 3} fill="#FFE600" stroke={color} strokeWidth="3"
-          />
-        ))}
-      </g>
-    );
-  };
+      // 2. Dibujar núcleo del hueso (línea fina brillante)
+      ctx.beginPath();
+      HAND_CONNECTIONS.forEach(([start, end]) => {
+        ctx.moveTo(points[start].x, points[start].y);
+        ctx.lineTo(points[end].x, points[end].y);
+      });
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+
+      ctx.globalAlpha = 1.0;
+
+      // 3. Dibujar Articulaciones Complejas (Estilo AR / HUD)
+      points.forEach((p, idx) => {
+        const isFingertip = [4, 8, 12, 16, 20].includes(idx);
+        const isWrist = idx === 0;
+        
+        if (isFingertip) {
+          // Puntas de los dedos: Punto central sólido con anillo exterior flotante
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 4, 0, 2 * Math.PI);
+          ctx.fillStyle = primaryColor;
+          ctx.fill();
+          
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 8, 0, 2 * Math.PI);
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        } else if (isWrist) {
+          // Muñeca: Círculo más grande
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+          ctx.strokeStyle = secondaryColor;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        } else {
+          // Nodos internos: Punto blanco brillante con borde del color de la mano
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3.5, 0, 2 * Math.PI);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+          ctx.strokeStyle = secondaryColor;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      });
+    };
+
+    // Colores de alta tecnología para el HUD (Holograma)
+    drawHand(hand1, '#0ea5e9', '#0284c7'); // Azul Cian Tecnológico
+    drawHand(hand2, '#10b981', '#059669'); // Verde Esmeralda (Contraste)
+  }, [keypoints]);
 
   return (
-    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-      {renderHand(hand1, '#00C9A7')} {/* Mint Cyan */}
-      {renderHand(hand2, '#005B96')} {/* Deep Blue */}
-    </svg>
+    <canvas 
+      ref={canvasRef} 
+      className="absolute inset-0 w-full h-full pointer-events-none z-10"
+    />
   );
 };
 
-export const CameraCapture: React.FC = () => {
+interface CameraCaptureProps {
+  onSignDetected: (sign: string) => void;
+}
+
+export const CameraCapture: React.FC<CameraCaptureProps> = ({ onSignDetected }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { stream, error, startCamera, stopCamera, isActive } = useCamera();
+  const { stream, startCamera, stopCamera, isActive } = useCamera();
   const { isConnected, response, startSendingFrames, stopSendingFrames } = useWebSocket();
-  const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [transcript, setTranscript] = useState<string[]>([]);
-  const [lastPrediction, setLastPrediction] = useState<string | null>(null);
-  const lastSpokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -95,171 +154,65 @@ export const CameraCapture: React.FC = () => {
     return () => stopSendingFrames();
   }, [isActive, isConnected, stream, startSendingFrames, stopSendingFrames]);
 
+  // Log usage time
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (isActive) {
+      interval = setInterval(() => {
+        statsService.logTime(10); // Log 10 seconds of usage
+      }, 10000);
+    }
+    return () => clearInterval(interval);
+  }, [isActive]);
+
+  const lastFailedLog = useRef<{ sign: string, time: number }>({ sign: '', time: 0 });
+
   useEffect(() => {
     if (!response || !response.predicted_sign) return;
     const sign = response.predicted_sign;
     
-    // Ignore if not detected or low confidence
-    if (!response.hand_detected || response.confidence < 0.6) return;
+    // Ignore if not detected
+    if (!response.hand_detected) return;
 
-    setLastPrediction(prev => {
-      if (prev !== sign) {
-        setTranscript(t => {
-          const newT = [...t, sign];
-          return newT.length > 5 ? newT.slice(1) : newT; // Keep it short for kids
-        });
-        return sign;
+    if (response.confidence < 0.6) {
+      // Log failed attempt silently, but throttle to max once per 2 seconds per sign to avoid spam
+      const now = Date.now();
+      if (sign !== lastFailedLog.current.sign || (now - lastFailedLog.current.time) > 2000) {
+        statsService.logFailedAttempt(sign.replace(/_/g, ' '), response.confidence);
+        lastFailedLog.current = { sign, time: now };
       }
-      return prev;
-    });
-  }, [response]);
-
-  useEffect(() => {
-    if (!ttsEnabled || !lastPrediction) return;
-    const text = lastPrediction.replace(/_/g, ' ');
-    if (text === lastSpokenRef.current) return;
-    lastSpokenRef.current = text;
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.lang = 'es-ES';
-    utt.pitch = 1.2; // Slightly higher pitch for kids
-    utt.rate = 0.9;  // Slightly slower
-    window.speechSynthesis.speak(utt);
-  }, [lastPrediction, ttsEnabled]);
-
-  const clearTranscript = () => {
-    setTranscript([]);
-    setLastPrediction(null);
-  };
+      return;
+    }
+    
+    onSignDetected(sign.replace(/_/g, ' '));
+  }, [response, onSignDetected]);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '32px', alignItems: 'stretch' }}>
-      
-      {/* ── Left: Camera with playful border ── */}
-      <div style={{ 
-        position: 'relative', 
-        aspectRatio: '16/9', 
-        background: '#FFFFFF', 
-        borderRadius: '32px', 
-        overflow: 'hidden',
-        border: '6px solid #FFFFFF',
-        boxShadow: '0 24px 48px rgba(0, 91, 150, 0.12), 0 8px 16px rgba(0, 201, 167, 0.08)',
-      }}>
-        {!isActive ? (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F0F9FF', gap: 20 }}>
-              <div style={{ fontSize: 64 }}>📸</div>
-              <button onClick={startCamera} style={{ 
-                padding: '16px 36px', background: '#00C9A7', color: 'white', 
-                borderRadius: '999px', fontSize: 22, fontWeight: 900, fontFamily: 'Nunito',
-                border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0, 201, 167, 0.4)',
-                transform: 'scale(1)', transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)'
-              }}
-              onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-              onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
-              >
-                ¡Encender Cámara!
-              </button>
-            </div>
-        ) : (
-          <>
-            <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
-            <SkeletonOverlay keypoints={response?.keypoints ?? []} />
-          </>
-        )}
-      </div>
-
-      {/* ── Right: Playful Transcription Panel ── */}
-      <div style={{ 
-        display: 'flex', flexDirection: 'column', gap: 24
-      }}>
-        
-        {/* GIANT Current Letter Box */}
-        <div style={{ 
-          background: '#FFFFFF', 
-          borderRadius: '32px', 
-          padding: '32px',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 12px 36px rgba(0, 91, 150, 0.08)',
-          border: '4px solid #E0F2FE',
-          minHeight: '280px',
-          position: 'relative', overflow: 'hidden'
-        }}>
-          <h3 style={{ fontSize: 18, fontWeight: 800, color: '#005B96', margin: 0, position: 'absolute', top: 20, textTransform: 'uppercase', letterSpacing: 1 }}>
-            Estás haciendo:
-          </h3>
-          
-          {lastPrediction ? (
-            <div style={{
-              fontSize: lastPrediction.length > 1 ? '60px' : '140px', 
-              fontWeight: 900, 
-              color: '#0A1F44',
-              lineHeight: 1,
-              textTransform: 'uppercase',
-              textShadow: '0 8px 16px rgba(0,201,167,0.2)',
-              marginTop: 20,
-              animation: 'popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)'
-            }}>
-              {lastPrediction.replace(/_/g, ' ')}
-            </div>
-          ) : (
-            <div style={{ fontSize: 80, opacity: 0.2, filter: 'grayscale(1)', marginTop: 20 }}>🤔</div>
-          )}
-        </div>
-
-        {/* Playful History & Controls */}
-        <div style={{ 
-          background: '#FFFFFF', borderRadius: '32px', padding: '24px', flex: 1,
-          boxShadow: '0 12px 36px rgba(0, 91, 150, 0.08)', border: '4px solid #E0F2FE',
-          display: 'flex', flexDirection: 'column'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#005B96', margin: 0 }}>Historial</h3>
-            <button
-              onClick={() => setTtsEnabled(!ttsEnabled)}
-              style={{
-                fontSize: 24, background: ttsEnabled ? '#E0F2FE' : '#F1F5F9', border: 'none', 
-                borderRadius: '50%', width: 48, height: 48, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: ttsEnabled ? '0 4px 12px rgba(0, 91, 150, 0.2)' : 'none'
-              }}
-              title={ttsEnabled ? "Voz Activada" : "Voz Desactivada"}
-            >
-              {ttsEnabled ? '🔊' : '🔇'}
-            </button>
+    <div className="relative w-full h-full bg-white/60 rounded-[2.5rem] overflow-hidden border-none backdrop-blur-xl">
+      {!isActive ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100/90 gap-6">
+          <div className="p-6 rounded-full bg-white shadow-sm border border-slate-200">
+            <Camera className="w-12 h-12 text-[#0f766e]" />
           </div>
-
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto' }}>
-            {transcript.length === 0 ? (
-              <p style={{ color: '#94A3B8', fontSize: 16, textAlign: 'center', marginTop: 20, fontWeight: 600 }}>Aún no hay señas...</p>
-            ) : (
-              transcript.map((word, i) => (
-                <div key={i} style={{ 
-                  padding: '12px 20px', background: '#F0F9FF', 
-                  borderRadius: '24px', alignSelf: 'flex-start',
-                  color: '#0A1F44', fontSize: 18, fontWeight: 800,
-                  border: '2px solid #BAE6FD'
-                }}>
-                  {word.replace(/_/g, ' ')}
-                </div>
-              ))
-            )}
-          </div>
-          
-          <button onClick={clearTranscript} style={{ 
-            marginTop: 16, padding: '12px', background: '#F1F5F9', borderRadius: '16px', 
-            color: '#64748B', fontSize: 16, fontWeight: 800, border: 'none', cursor: 'pointer' 
-          }}>
-            🧹 Borrar todo
+          <button 
+            onClick={startCamera} 
+            className="px-8 py-4 bg-gradient-to-r from-[#0f766e] to-[#3b82f6] text-white rounded-full text-lg font-bold shadow-md hover:shadow-lg transition-all transform hover:scale-105"
+          >
+            Encender Cámara
           </button>
         </div>
-
-      </div>
-      <style>{`
-        @keyframes popIn {
-          0% { transform: scale(0.5); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-      `}</style>
+      ) : (
+        <>
+          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform -scale-x-100" />
+          <SkeletonOverlay keypoints={response?.keypoints ?? []} />
+          
+          {/* Active indicator */}
+          <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-md rounded-full border border-slate-200 shadow-sm">
+            <div className="w-2 h-2 rounded-full bg-[#0f766e] animate-pulse" />
+            <span className="text-xs font-semibold text-slate-700">Cámara Activa</span>
+          </div>
+        </>
+      )}
     </div>
   );
 };

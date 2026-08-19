@@ -25,11 +25,14 @@ build/
 *.tflite
 *.tasks
 
-# ===== Datasets binarios (demasiado grandes para git) =====
-ai/datasets/*.npy
-ai/datasets/sequences/
+# ===== Datasets binarios =====
+# Las secuencias crudas SI se versionan para que todo el equipo comparta
+# el mismo dataset. Si el dataset crece demasiado, volver a ignorarlas.
 ai/datasets/sequences_augmented/
 ai/models/saved/training_history.png
+
+# ===== Base de datos =====
+# backend/sqlite.db se versiona a proposito (datos de prueba compartidos)
 
 # ===== Variables de entorno =====
 .env
@@ -37,7 +40,6 @@ ai/models/saved/training_history.png
 .env.production
 !.env.example
 
-# ===== Base de datos =====
 *.sqlite3
 postgres_data/
 

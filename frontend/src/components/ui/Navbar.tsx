@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 
 const LINKS = [
   { to: '/',       label: 'Aprender Señas', end: true  },
-  { to: '/grabar', label: 'Juego de Datos', end: false },
+  { to: '/logros', label: 'Logros', end: false },
 ];
 
 export default function Navbar() {
@@ -16,7 +16,7 @@ export default function Navbar() {
   }, []);
 
   return (
-    <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
+    <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none print:hidden">
       <nav
         className={`
           pointer-events-auto flex items-center justify-between gap-8 px-6 py-3
@@ -28,19 +28,8 @@ export default function Navbar() {
       >
 
         {/* ── Brand / Logo ── */}
-        <div className="flex items-center gap-3 mr-4 select-none">
-           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#logo-gradient)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-             <defs>
-               <linearGradient id="logo-gradient" x1="0" y1="0" x2="24" y2="24">
-                 <stop offset="0%" stopColor="#00C9A7" />
-                 <stop offset="100%" stopColor="#005B96" />
-               </linearGradient>
-             </defs>
-             <path d="M12 2L2 7l10 5 10-5-10-5z" />
-             <path d="M2 17l10 5 10-5" />
-             <path d="M2 12l10 5 10-5" />
-           </svg>
-           <span className="text-[#0A1F44] text-xl font-black tracking-tight" style={{ fontFamily: 'Nunito, sans-serif' }}>KAIROS</span>
+        <div className="flex items-center mr-4 select-none">
+           <img src="/logo.png" alt="Kairós Logo" className="h-12 w-auto object-contain" />
         </div>
 
         {/* ── Links ── */}

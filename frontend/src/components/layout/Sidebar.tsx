@@ -11,9 +11,8 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside className="sidebar">
-      <div className="logo-section">
-        <div style={{ fontSize: '24px' }}>🤟</div>
-        <h2>Manos LSC</h2>
+      <div className="logo-section" style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+        <img src="/logo.png" alt="Kairós Logo" style={{ maxWidth: '140px', height: 'auto', objectFit: 'contain' }} />
       </div>
 
       <nav className="nav-menu">

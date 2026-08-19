@@ -29,6 +29,8 @@ export const useWebSocket = (): UseWebSocketReturn => {
   const wsRef = useRef<WebSocket | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Estado ultra-rápido para evitar lag de React en la sincronización de frames
+  const isWaitingRef = useRef<boolean>(false);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN ||
@@ -39,6 +41,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
     ws.onopen = () => {
       console.log('WebSocket connected');
       setIsConnected(true);
+      isWaitingRef.current = false;
       useUiStore.getState().addToast('Conexión establecida con el servidor AI', 'success');
     };
 
@@ -46,29 +49,30 @@ export const useWebSocket = (): UseWebSocketReturn => {
       try {
         const data: WebSocketResponse = JSON.parse(event.data);
         setResponse(data);
+        // Liberar el candado en cuanto recibimos la respuesta: PING-PONG perfecto
+        isWaitingRef.current = false;
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
+        isWaitingRef.current = false;
       }
     };
 
     ws.onclose = () => {
       console.log('WebSocket disconnected. Reconnecting in 3s...');
-      
-      // Only toast if it was previously connected, to avoid spamming on load
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         useUiStore.getState().addToast('Conexión perdida. Reconectando...', 'error');
       } else if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
-        // If it fails to connect entirely
         useUiStore.getState().addToast('Intentando reconectar con el servidor AI...', 'info');
       }
-
       setIsConnected(false);
+      isWaitingRef.current = false;
       stopSendingFrames();
       setTimeout(connect, 3000);
     };
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      isWaitingRef.current = false;
     };
 
     wsRef.current = ws;
@@ -96,32 +100,43 @@ export const useWebSocket = (): UseWebSocketReturn => {
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    // Reducir la resolución a 320x240 en el origen:
-    // Un JPEG más pequeño viaja por la red casi instantáneamente (1-2 ms) y el backend 
-    // lo decodifica muchísimo más rápido, eliminando el lag de transferencia.
-    canvas.width  = Math.min(videoElement.videoWidth  || 320, 320);
-    canvas.height = Math.min(videoElement.videoHeight || 240, 240);
+    
+    // Resolución óptima para MediaPipe (muy rápida de codificar)
+    canvas.width  = 256;
+    canvas.height = 256;
 
+    let isEncoding = false;
     const sendFrame = () => {
       if (wsRef.current?.readyState !== WebSocket.OPEN) return;
       if (!ctx || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
-      // Backpressure: si el WS aún tiene datos en cola, omitir este frame
+      
+      // ESTRATEGIA CERO-LAG: Ping-Pong. 
+      // NUNCA enviamos un frame si el servidor no ha devuelto el anterior.
+      if (isWaitingRef.current) return;
       if (wsRef.current.bufferedAmount > 0) return;
+      if (isEncoding) return;
 
+      isEncoding = true;
       ctx.save();
       ctx.scale(-1, 1);
+      
+      // Dibujar la imagen completa estirada al tamaño del canvas. 
+      // Las coordenadas devueltas (0 a 1) se mapearán perfectamente al canvas superpuesto.
       ctx.drawImage(videoElement, -canvas.width, 0, canvas.width, canvas.height);
       ctx.restore();
-      // Enviar Blob directamente — evita la conversión arrayBuffer() async
+      
       canvas.toBlob((blob) => {
-        if (blob && wsRef.current?.readyState === WebSocket.OPEN
-            && wsRef.current.bufferedAmount === 0) {
+        isEncoding = false;
+        if (blob && wsRef.current?.readyState === WebSocket.OPEN && !isWaitingRef.current) {
+          isWaitingRef.current = true; // Bloquear hasta recibir respuesta
           wsRef.current.send(blob);
         }
-      }, 'image/jpeg', 0.50); // Calidad 50%: reduce drásticamente el peso en KB sin afectar los keypoints
+      }, 'image/jpeg', 0.30); // 30% calidad es súper ligera y suficiente para IA
     };
 
-    intervalRef.current = setInterval(sendFrame, 50);  // 20 fps estable
+    // Intentamos enviar lo más rápido posible (60fps), pero 'isWaitingRef' 
+    // automáticamente limitará la velocidad a la máxima que el servidor pueda procesar.
+    intervalRef.current = setInterval(sendFrame, 16); 
   }, []);
 
   const stopSendingFrames = useCallback(() => {
@@ -129,6 +144,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    isWaitingRef.current = false;
   }, []);
 
   return { isConnected, response, startSendingFrames, stopSendingFrames };
